@@ -79,7 +79,7 @@ To avoid any potential file path errors, organize your project files as follows:
     │   ├── run_main.sh
    
     ```
-
+hint: you can generate column_meaning.json for dev and val dataset from TA-SQL: https://github.com/quge2023/TA-SQL
 
 ## Setting up the Environment
 1. **Download the compressed code.**
