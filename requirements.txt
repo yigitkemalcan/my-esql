@@ -7,9 +7,5 @@ func_timeout==4.3.5
 openai==1.37.1
 numpy
 pandas
-sentencepiece
-sqlite3  
-logging  
-re  
-difflib
-psycopg2
+sentencepiece  
+psycopg2-binary

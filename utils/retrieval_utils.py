@@ -147,6 +147,9 @@ def process_all_dbs(dataset_path: str, mode: str):
     databases_path = dataset_path + f"/{mode}/{mode}_databases"
    
     for db_directory in os.listdir(databases_path):
+        #thank you, Apple inc. for creating .DS_Store files
+        if db_directory == ".DS_Store":
+            continue
         print(f"----------> Start to process {db_directory} database.")
         db_description_path = databases_path + "/" + db_directory + "/database_description"
         process_database_descriptions(database_description_path=db_description_path)
