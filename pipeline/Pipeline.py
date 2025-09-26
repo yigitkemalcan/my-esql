@@ -4,6 +4,7 @@ from utils.prompt_utils import *
 from utils.db_utils import * 
 from utils.openai_utils import create_response
 from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Pipeline():
     def __init__(self, args):
@@ -37,6 +38,9 @@ class Pipeline():
         self.rdn = args.relevant_description_number
 
         self.seed = args.seed
+
+        self.num_enriched_questions = getattr(args, "num_enriched_questions", 1)
+        self.provider = getattr(args, "provider", "openai")
 
     def convert_message_content_to_dict(self, response_object: Dict) -> Dict:
         """
@@ -188,9 +192,9 @@ class Pipeline():
                 "sql_generation_reasoning": sql_generation_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
                 "possible_sql": possible_sql,
                 "exec_err": "",
-                "prompt_tokens": sql_generation_response_obj.usage.prompt_tokens,
-                "completion_tokens": sql_generation_response_obj.usage.completion_tokens,
-                "total_tokens": sql_generation_response_obj.usage.total_tokens,
+                "prompt_tokens": int((sql_generation_response_obj.usage.prompt_tokens or 0)),
+                "completion_tokens": int((sql_generation_response_obj.usage.completion_tokens or 0)),
+                "total_tokens": int((sql_generation_response_obj.usage.total_tokens or 0)),
             }
             t2s_object["possible_sql"] = possible_sql
             # execute SQL
@@ -216,24 +220,71 @@ class Pipeline():
         possible_conditions_dict_list = collect_possible_conditions(db_path=db_path, sql=possible_sql)
         possible_conditions = sql_possible_conditions_prep(possible_conditions_dict_list=possible_conditions_dict_list)
 
-        ### STAGE 2: Question Enrichment:
+        ### STAGE 2: Question Enrichment (MULTI + COMBINE)
         # -- Original question is used
         # -- Original schema is used
         # -- Possible conditions are used
-        q_enrich_response_obj = self.question_enrichment_module(db_path=db_path, q_id=q_id, db_id=db_id, question=question, evidence=evidence, possible_conditions=possible_conditions, schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        try:
-            enriched_question = q_enrich_response_obj.choices[0].message.content['enriched_question']
-            enrichment_reasoning = q_enrich_response_obj.choices[0].message.content['chain_of_thought_reasoning']
-            t2s_object["question_enrichment"] = {
-                "enrichment_reasoning": q_enrich_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
-                "enriched_question": q_enrich_response_obj.choices[0].message.content['enriched_question'],
-                "prompt_tokens": q_enrich_response_obj.usage.prompt_tokens,
-                "completion_tokens": q_enrich_response_obj.usage.completion_tokens,
-                "total_tokens": q_enrich_response_obj.usage.total_tokens,
-            }
-            enriched_question = question + enrichment_reasoning + enriched_question # This is added after experiment-24
-        except Exception as e:
-            logging.error(f"Error in reaching content from question enrichment response for question_id {q_id}: {e}")
+        # Run QE N times concurrently
+        num_eq = getattr(self, "num_enriched_questions", 1)
+        enriched_variants = []
+        qe_runs_usage = []
+        qe_first_reasoning = ""
+        qe_first_enriched = ""
+
+        def _qe_call(i: int):
+            resp = self.question_enrichment_module(
+                db_path=db_path, q_id=q_id, db_id=db_id,
+                question=question, evidence=evidence,
+                possible_conditions=possible_conditions,
+                schema_dict=original_schema_dict,
+                db_descriptions=db_descriptions
+            )
+            return i, resp
+
+        workers = 1
+        results = []
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(_qe_call, i) for i in range(num_eq)]
+            for fut in as_completed(futs):
+                try:
+                    results.append(fut.result())
+                except Exception:
+                    # ignore failed attempt; fallbacks below
+                    pass
+
+        # Preserve deterministic "first run" semantics by index
+        for i, q_enrich_response_obj in sorted(results, key=lambda x: x[0]):
+            try:
+                eq = q_enrich_response_obj.choices[0].message.content['enriched_question']
+                er = q_enrich_response_obj.choices[0].message.content['chain_of_thought_reasoning']
+                if isinstance(eq, str) and eq.strip():
+                    enriched_variants.append({
+                        "enriched_question": eq.strip(),
+                        "enrichment_reasoning": er.strip()
+                    })
+
+                um = getattr(q_enrich_response_obj, "usage", None)
+                qe_runs_usage.append({
+                    "prompt_tokens": int(getattr(um, "prompt_tokens", 0) or 0),
+                    "completion_tokens": int(getattr(um, "completion_tokens", 0) or 0),
+                    "total_tokens": int(getattr(um, "total_tokens", 0) or 0),
+                })
+
+                if qe_first_enriched == "":
+                    qe_first_enriched = eq
+                    qe_first_reasoning = er
+            except Exception as e:
+                logging.error(f"Error parsing QE response for qid {q_id} run {i}: {e}")
+                continue
+
+
+        # For observability: keep all generated variants
+        t2s_object["question_enrichment_variants"] = enriched_variants
+
+        # Fallback if nothing returned
+        if not enriched_variants:
+            # preserve original structure with empties
             t2s_object["question_enrichment"] = {
                 "enrichment_reasoning": "",
                 "enriched_question": "",
@@ -241,8 +292,75 @@ class Pipeline():
                 "completion_tokens": 0,
                 "total_tokens": 0,
             }
-            t2s_object["question_enrichment"]["error"] = f"{e}"
-            enriched_question = question
+            # final enriched for SR falls back to original question
+            enriched_question_final = question
+
+        # If only one variant, keep the original Experiment-24 concatenation behavior
+        elif len(enriched_variants) == 1:
+            t2s_object["question_enrichment"] = {
+                "enrichment_reasoning": qe_first_reasoning,
+                "enriched_question": qe_first_enriched,
+                "prompt_tokens": qe_runs_usage[0]["prompt_tokens"] if qe_runs_usage else 0,
+                "completion_tokens": qe_runs_usage[0]["completion_tokens"] if qe_runs_usage else 0,
+                "total_tokens": qe_runs_usage[0]["total_tokens"] if qe_runs_usage else 0,
+            }
+            # Experiment-24: concat original question + reasoning + enriched_question
+            enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
+
+        # If multiple variants, call the new COMBINATION module
+        else:
+            comb_response_obj = self.qe_combination_module(
+                db_path=db_path, q_id=q_id, db_id=db_id,
+                question=question, evidence=evidence,
+                possible_conditions=possible_conditions,
+                schema_dict=original_schema_dict,
+                db_descriptions=db_descriptions,
+                enriched_questions_with_reasoning=enriched_variants
+            )
+            try:
+                content = comb_response_obj.choices[0].message.content or {}
+                combined_enrichment_reasoning = content.get('combined_enrichment_reasoning', '')
+                combined_enriched_question = content.get('combined_enriched_question', '')
+                # Record the combiner call usage
+                t2s_object["qe_combination"] = {
+                    "combined_enrichment_reasoning": combined_enrichment_reasoning,
+                    "combined_enriched_question": combined_enriched_question,
+                    "prompt_tokens": int((comb_response_obj.usage.prompt_tokens or 0)),
+                    "completion_tokens": int((comb_response_obj.usage.completion_tokens or 0)),
+                    "total_tokens": int((comb_response_obj.usage.total_tokens or 0)),
+                }
+
+                # For backward compatibility: keep first QE run as the canonical QE record
+                # (tools downstream may expect these fields to exist)
+                if qe_runs_usage:
+                    t2s_object["question_enrichment"] = {
+                        "enrichment_reasoning": qe_first_reasoning,
+                        "enriched_question": qe_first_enriched,
+                        "prompt_tokens": int(qe_runs_usage[0]["prompt_tokens"]) if qe_runs_usage else 0,
+                        "completion_tokens": int(qe_runs_usage[0]["completion_tokens"]) if qe_runs_usage else 0,
+                        "total_tokens": int(qe_runs_usage[0]["total_tokens"]) if qe_runs_usage else 0,
+                    }
+
+                # There is no reasoning in the combiner output; to stay aligned with Experiment-24
+                # we prepend the original question. (You can drop this if you want the pure combined text.)
+                enriched_question_final = (
+                    question + "\n" +
+                    (combined_enrichment_reasoning.strip() + "\n" if combined_enrichment_reasoning else "") +
+                    combined_enriched_question
+                )
+
+            except Exception as e:
+                logging.error(f"Error in reaching content from QE combination response for question_id {q_id}: {e}")
+                # Fallback: use first QE run’s concatenation
+                t2s_object["qe_combination"] = {
+                    "combined_enriched_question": "",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "error": f"{e}",
+                }
+                enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
+
         
         ### STAGE 3: SQL Refinement
         # -- Enriched question is used
@@ -251,15 +369,16 @@ class Pipeline():
         # -- Possible Conditions is extracted from possible SQL and then used for augmentation
         # -- Execution Error for Possible SQL is used
         exec_err = t2s_object['candidate_sql_generation']["exec_err"]
-        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
+        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question_final, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
+        print("SQL refinement response:", sql_generation_response_obj)
         try:
             predicted_sql = sql_generation_response_obj.choices[0].message.content['SQL']
             t2s_object["sql_refinement"] = {
                 "sql_generation_reasoning": sql_generation_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
                 "predicted_sql": predicted_sql,
-                "prompt_tokens": sql_generation_response_obj.usage.prompt_tokens,
-                "completion_tokens": sql_generation_response_obj.usage.completion_tokens,
-                "total_tokens": sql_generation_response_obj.usage.total_tokens,
+                "prompt_tokens": int((sql_generation_response_obj.usage.prompt_tokens or 0)),
+                "completion_tokens": int((sql_generation_response_obj.usage.completion_tokens or 0)),
+                "total_tokens": int((sql_generation_response_obj.usage.total_tokens or 0)),
             }
             t2s_object["predicted_sql"] = predicted_sql
         except Exception as e:
@@ -275,10 +394,21 @@ class Pipeline():
             return t2s_object
 
         # storing the usage for one question
+        # Sum all QE calls + optional combiner; keep backward compat if lists missing
+        qe_prompt_sum = sum((u.get("prompt_tokens") or 0) for u in qe_runs_usage) if 'qe_runs_usage' in locals() else int(t2s_object['question_enrichment'].get('prompt_tokens', 0) or 0)
+        qe_completion_sum = sum((u.get("completion_tokens") or 0) for u in qe_runs_usage) if 'qe_runs_usage' in locals() else int(t2s_object['question_enrichment'].get('completion_tokens', 0) or 0)
+        qe_total_sum = sum((u.get("total_tokens") or 0) for u in qe_runs_usage) if 'qe_runs_usage' in locals() else int(t2s_object['question_enrichment'].get('total_tokens', 0) or 0)
+
+
+        comb_prompt = int(t2s_object.get("qe_combination", {}).get("prompt_tokens", 0) or 0)
+        comb_completion = int(t2s_object.get("qe_combination", {}).get("completion_tokens", 0) or 0)
+        comb_total = int(t2s_object.get("qe_combination", {}).get("total_tokens", 0) or 0)
+
+
         t2s_object["total_usage"] = {
-            "prompt_tokens": t2s_object['candidate_sql_generation']['prompt_tokens'] + t2s_object['question_enrichment']['prompt_tokens'] + t2s_object['sql_refinement']['prompt_tokens'],
-            "completion_tokens": t2s_object['candidate_sql_generation']['completion_tokens'] + t2s_object['question_enrichment']['completion_tokens'] + t2s_object['sql_refinement']['completion_tokens'],
-            "total_tokens": t2s_object['candidate_sql_generation']['total_tokens'] + t2s_object['question_enrichment']['total_tokens'] + t2s_object['sql_refinement']['total_tokens']
+            "prompt_tokens": t2s_object['candidate_sql_generation']['prompt_tokens'] + qe_prompt_sum + comb_prompt + t2s_object['sql_refinement']['prompt_tokens'],
+            "completion_tokens": t2s_object['candidate_sql_generation']['completion_tokens'] + qe_completion_sum + comb_completion + t2s_object['sql_refinement']['completion_tokens'],
+            "total_tokens": t2s_object['candidate_sql_generation']['total_tokens'] + qe_total_sum + comb_total + t2s_object['sql_refinement']['total_tokens']
         }
 
         t2s_object_prediction = t2s_object
@@ -492,7 +622,7 @@ class Pipeline():
             response_object (Dict): Response object returned by the LLM
         """
         prompt = self.construct_question_enrichment_prompt(db_path=db_path, q_id=q_id, db_id=db_id, question=question, evidence=evidence, possible_conditions=possible_conditions, schema_dict=schema_dict, db_descriptions=db_descriptions)
-        response_object = create_response(stage="question_enrichment", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n)
+        response_object = create_response(stage="question_enrichment", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n, provider=self.provider)
         try:
             response_object = self.convert_message_content_to_dict(response_object)
         except:
@@ -603,12 +733,11 @@ class Pipeline():
             response_object (Dict): Response object returned by the LLM
         """
         prompt = self.construct_candidate_sql_generation_prompt(db_path=db_path, db_id=db_id, question=question, evidence=evidence, filtered_schema_dict=filtered_schema_dict, db_descriptions=db_descriptions)
-        response_object = create_response(stage="candidate_sql_generation", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n)
+        response_object = create_response(stage="candidate_sql_generation", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n, provider=self.provider)
         try:
             response_object = self.convert_message_content_to_dict(response_object)
         except:
             return response_object
-
         return response_object
 
     
@@ -631,12 +760,11 @@ class Pipeline():
             response_object (Dict): Response object returned by the LLM
         """
         prompt = self.construct_sql_refinement_prompt(db_path=db_path, db_id=db_id, question=question, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=filtered_schema_dict, db_descriptions=db_descriptions)
-        response_object = create_response(stage="sql_refinement", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n)
+        response_object = create_response(stage="sql_refinement", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n, provider=self.provider)
         try:
             response_object = self.convert_message_content_to_dict(response_object)
         except:
             return response_object
-
         return response_object
     
 
@@ -663,5 +791,96 @@ class Pipeline():
             return response_object
 
         return response_object
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # NEW: QE Combination Module
+    # ─────────────────────────────────────────────────────────────────────────────
+    def construct_qe_combination_prompt(
+        self,
+        db_path: str,
+        q_id: int,
+        db_id: str,
+        question: str,
+        evidence: str,
+        possible_conditions: str,
+        schema_dict: Dict,
+        db_descriptions: str,
+        enriched_questions_with_reasoning: List[Dict[str, str]],
+    ) -> str:
+        """
+        Constructs the prompt for the QE combination stage (multi-enriched → one combined).
+        Mirrors QE inputs + adds enriched_questions.
+        """
+        combination_template_path = os.path.join(os.getcwd(), "prompt_templates/qe_combination_prompt_template.txt")
+        qe_combination_prompt_template = extract_qe_combination_prompt_template(combination_template_path)
+
+        # (Optional few-shot for combiner). Keep empty by default.
+        comb_few_shot_examples = ""
+
+        # Reuse the exact same sample & schema preparation as QE:
+        db_samples = extract_db_samples_enriched_bm25(
+            question, evidence, db_path=db_path, schema_dict=schema_dict, sample_limit=self.db_sample_limit
+        )
+        schema = generate_schema_from_schema_dict(db_path=db_path, schema_dict=schema_dict)
+
+        prompt = fill_qe_combination_prompt_template(
+            template=qe_combination_prompt_template,
+            schema=schema,
+            db_samples=db_samples,
+            question=question,
+            possible_conditions=possible_conditions,
+            few_shot_examples=comb_few_shot_examples,
+            evidence=evidence,
+            db_descriptions=db_descriptions,
+            enriched_question_list_with_reasoning=enriched_questions_with_reasoning,
+        )
+        # print("qe_combination_prompt:\n", prompt)
+        return prompt
+
+
+    def qe_combination_module(
+        self,
+        db_path: str,
+        q_id: int,
+        db_id: str,
+        question: str,
+        evidence: str,
+        possible_conditions: str,
+        schema_dict: Dict,
+        db_descriptions: str,
+        enriched_questions_with_reasoning: List[Dict[str, str]],
+    ) -> Dict:
+        """
+        Calls the LLM to combine multiple enriched questions into ONE.
+        Returns a response_object consistent with other modules (JSON with 'combined_enriched_question').
+        """
+        prompt = self.construct_qe_combination_prompt(
+            db_path=db_path,
+            q_id=q_id,
+            db_id=db_id,
+            question=question,
+            evidence=evidence,
+            possible_conditions=possible_conditions,
+            schema_dict=schema_dict,
+            db_descriptions=db_descriptions,
+            enriched_questions_with_reasoning=enriched_questions_with_reasoning,
+        )
+        response_object = create_response(
+            stage="qe_combination",
+            prompt=prompt,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            n=self.n,
+            provider=self.provider
+        )
+        try:
+            response_object = self.convert_message_content_to_dict(response_object)
+        except:
+            return response_object
+        return response_object
+
+
     
     

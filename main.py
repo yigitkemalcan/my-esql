@@ -31,7 +31,7 @@ def main(args):
     # Incase error you can restart the code from the point of error using following lines
     # dataset = dataset[<enter_start_question_id>: <enter_end_question_id>]
     # dataset = dataset[<enter_question_id>:]
-    dataset = dataset[1135:]
+    dataset = dataset[465:]
     for ind,t2s_object in enumerate(dataset):
         q_id = t2s_object["question_id"]
         if pipeline.pipeline_order == "CSG-SR":
@@ -70,6 +70,7 @@ def main(args):
 
         # adding predicted sql in the expected format for the evaluation files
         db_id = t2s_object_prediction["db_id"]
+        print("DEBUG full t2s_object_prediction:", t2s_object_prediction)
         predicted_sql = t2s_object_prediction["predicted_sql"]
         predicted_sql = predicted_sql.replace('\"','').replace('\\\n',' ').replace('\n',' ')
         sql = predicted_sql + '\t----- bird -----\t' + db_id
@@ -115,7 +116,10 @@ def main(args):
             "generation_few_shot_schema_existance": args.generation_few_shot_schema_existance,
             "db_sample_limit": args.db_sample_limit,
             "relevant_description_number": args.relevant_description_number,
-            "seed": args.seed
+            "seed": args.seed,
+            "num_enriched_questions": args.num_enriched_questions,
+            "provider": args.provider
+            
         }
     }
 
@@ -302,6 +306,13 @@ if __name__ == '__main__':
     parser.add_argument("-rdn", "--relevant_description_number", default=6, type=int, help="The number of database item/column descriptions added to a prompt.")
     # custom seed argument
     parser.add_argument("--seed", default=42, type=int, help="Random seed")
+    #new argument
+    parser.add_argument("--num_enriched_questions", default=1, type=int,
+                    help="Number of enriched questions to generate for QE. If >1, the QE outputs will be combined.")
+
+    parser.add_argument("--provider", default="openai", choices=["openai", "gemini"],
+                    help="LLM backend to use.")
+
 
     args = parser.parse_args()
     main(args)

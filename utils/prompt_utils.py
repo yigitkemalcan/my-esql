@@ -4,6 +4,8 @@ import json
 from .db_utils import *
 from .retrieval_utils import *
 from typing import Any, Union, List, Dict
+from pathlib import Path
+import json
 
 
 def load_few_shot_data(few_shot_data_path="../few-shot-data/question_enrichment_few_shot_examples.json"):
@@ -523,3 +525,31 @@ def fill_prompt_template(template: str, schema: str, db_samples: str, question: 
     prompt = prompt.replace("```json{", "{").replace("}```", "}").replace("{{", "{").replace("}}", "}")
     # print("The prompt: \n", prompt)
     return prompt
+
+def extract_qe_combination_prompt_template(template_path: str) -> str:
+    with open(template_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def fill_qe_combination_prompt_template(
+    *, template: str, schema: str, db_samples: str, question: str,
+    possible_conditions: str, few_shot_examples: str, evidence: str,
+    db_descriptions: str, enriched_question_list_with_reasoning: List[Dict[str, str]],
+) -> str:
+    eq_block = "\n\n".join(
+        "enriched_question: {q}\n"
+        "enrichment_reasoning: {r}".format(
+            q=(item.get("enriched_question", "").strip()),
+            r=(item.get("enrichment_reasoning", "").strip())
+        )
+        for item in (enriched_question_list_with_reasoning or [])
+    ) or "N/A"
+    return (template
+        .replace("{FEWSHOT_EXAMPLES}", few_shot_examples or "")
+        .replace("{SCHEMA}", schema or "N/A")
+        .replace("{DB_SAMPLES}", db_samples or "N/A")
+        .replace("{QUESTION}", question or "N/A")
+        .replace("{POSSIBLE_CONDITIONS}", possible_conditions or "N/A")
+        .replace("{EVIDENCE}", evidence or "N/A")
+        .replace("{DB_DESCRIPTIONS}", db_descriptions or "N/A")
+        .replace("{ENRICHED_QUESTION_LIST_WITH_REASONING}", eq_block))
+

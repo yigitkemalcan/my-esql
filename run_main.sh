@@ -2,8 +2,8 @@
 
 # Set default values for the arguments
 mode="dev"
-model="gpt-4o-mini-2024-07-18"  # For GPT-4o use "gpt-4o-2024-08-06". For GPT-4o mini use "gpt-4o-mini-2024-07-18"
-pipeline_order="SF-CSG-QE-SR" # First set CSG-QE-SR and then set CSG-SR
+model="gemini-2.5-flash"  # For GPT-4o use "gpt-4o-2024-08-06". For GPT-4o mini use "gpt-4o-mini-2024-07-18". For gemini use "gemini-2.5-flash"
+pipeline_order="CSG-QE-SR" # First set CSG-QE-SR and then set CSG-SR
 
 # DO NOT CHANGE THE F0LLOWING ARGUMENTS
 temperature=0.0
@@ -21,6 +21,8 @@ generation_few_shot_schema_existance=False
 db_sample_limit=10
 relevant_description_number=20
 seed=42
+num_enriched_questions=3
+provider=gemini
 
 # Parse command line arguments to override default values
 while [ "$#" -gt 0 ]; do
@@ -40,9 +42,11 @@ while [ "$#" -gt 0 ]; do
         --cfg) cfg="$2"; shift ;;
         --generation_level_shot_number) generation_level_shot_number="$2"; shift ;;
         --generation_few_shot_schema_existance) generation_few_shot_schema_existance="$2"; shift ;;
-        --db_sample_limit) db_sample_limit="$2"; shirt ;;
-        --relevant_description_number) relevant_description_number="$2"; shirt ;;
+        --db_sample_limit) db_sample_limit="$2"; shift ;;
+        --relevant_description_number) relevant_description_number="$2"; shift ;;
         --seed) seed="$2"; shift ;;
+        --num_enriched_questions) num_enriched_questions="$2"; shift ;;
+        --provider) provider="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -67,4 +71,8 @@ python main.py \
     --generation_few_shot_schema_existance "$generation_few_shot_schema_existance" \
     --db_sample_limit "$db_sample_limit" \
     --relevant_description_number "$relevant_description_number" \
-    --seed "$seed"
+    --seed "$seed" \
+    --num_enriched_questions "$num_enriched_questions" \
+    --provider "$provider" 
+
+    
