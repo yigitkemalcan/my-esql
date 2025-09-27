@@ -535,12 +535,9 @@ def fill_qe_combination_prompt_template(
     possible_conditions: str, few_shot_examples: str, evidence: str,
     db_descriptions: str, enriched_question_list_with_reasoning: List[Dict[str, str]],
 ) -> str:
-    eq_block = "\n\n".join(
-        "enriched_question: {q}\n"
-        "enrichment_reasoning: {r}".format(
-            q=(item.get("enriched_question", "").strip()),
-            r=(item.get("enrichment_reasoning", "").strip())
-        )
+    eq_block = ("\n\n---\n\n").join(
+        f"enriched_question: {item.get('enriched_question','').strip()}\n"
+        f"enrichment_reasoning: {item.get('enrichment_reasoning','').strip()}"
         for item in (enriched_question_list_with_reasoning or [])
     ) or "N/A"
     return (template
