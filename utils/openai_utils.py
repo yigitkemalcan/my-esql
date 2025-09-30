@@ -13,6 +13,72 @@ from google.api_core import exceptions
 from vertexai import init as vertex_init
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 
+SQL_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "The detailed, step-by-step logic."
+        },
+        "SQL": {
+            "type": "STRING",
+            "description": "The final, valid SQLite SQL query."
+        },
+    },
+    "required": ["chain_of_thought_reasoning", "SQL"],
+}
+
+QE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "The step-by-step thinking process."
+        },
+        "enriched_question": {
+            "type": "STRING",
+            "description": "The final enriched question, rewritten with database details."
+        },
+    },
+    "required": ["chain_of_thought_reasoning", "enriched_question"],
+}
+
+QE_SELECTION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "combined_enrichment_reasoning": {
+            "type": "STRING",
+            "description": "The reasoning of the combined enriched question."
+        },
+        "combined_enriched_question": {
+            "type": "STRING",
+            "description": "The single, best combined question."
+        },
+    },
+    "required": ["combined_enrichment_reasoning", "combined_enriched_question"],
+}
+
+SCHEMA_FILTERING_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "The thinking process for item selection."
+        },
+        "useful_tables": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "List of relevant table names."
+        },
+        "useful_columns": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "List of relevant column names."
+        },
+    },
+    "required": ["chain_of_thought_reasoning", "useful_tables", "useful_columns"],
+}
+
 
 def _wrap_chat_like(model: str, content: Any, usage: Any):
     um = usage or SimpleNamespace(prompt_token_count=0, candidates_token_count=0, total_token_count=0)
@@ -106,18 +172,22 @@ def create_response(
         response_object (): OpenAI-like response object
                                with .choices[0].message.content
     """
-
+    required_schema = None
     if stage == "question_enrichment":
         system_content = "You are excellent data scientist and can link the information between a question and corresponding database perfectly. Your objective is to analyze the given question, corresponding database schema, database column descriptions and the evidence to create a clear link between the given question and database items which includes tables, columns and values. With the help of link, rewrite new versions of the original question to be more related with database items, understandable, clear, absent of irrelevant information and easier to translate into SQL queries. This question enrichment is essential for comprehending the question's intent and identifying the related database items. The process involves pinpointing the relevant database components and expanding the question to incorporate these items."
+        required_schema = QE_SCHEMA
     elif stage == "candidate_sql_generation":
         system_content = "You are an excellent data scientist. You can capture the link between the question and corresponding database and perfectly generate valid SQLite SQL query to answer the question. Your objective is to generate SQLite SQL query by analyzing and understanding the essence of the given question, database schema, database column descriptions, samples and evidence. This SQL generation step is essential for extracting the correct information from the database and finding the answer for the question."
+        required_schema = SQL_SCHEMA
     elif stage == "sql_refinement":
         system_content = "You are an excellent data scientist. You can capture the link between the question and corresponding database and perfectly generate valid SQLite SQL query to answer the question. Your objective is to generate SQLite SQL query by analyzing and understanding the essence of the given question, database schema, database column descriptions, evidence, possible SQL and possible conditions. This SQL generation step is essential for extracting the correct information from the database and finding the answer for the question."
+        required_schema = SQL_SCHEMA
     elif stage == "schema_filtering":
         system_content = "You are an excellent data scientist. You can capture the link between a question and corresponding database and determine the useful database items (tables and columns) perfectly. Your objective is to analyze and understand the essence of the given question, corresponding database schema, database column descriptions, samples and evidence and then select the useful database items such as tables and columns. This database item filtering is essential for eliminating unnecessary information in the database so that corresponding structured query language (SQL) of the question can be generated correctly in later steps."
+        required_schema = SCHEMA_FILTERING_SCHEMA
     elif stage == "qe_combination":
         system_content = "You are an excellent data scientist who links information between a question and its database. You will read multiple enriched-question candidates along with the schema, descriptions, samples, evidence, and possible SQL conditions, and synthesize ONE clear, faithful combined enriched question. Do not invent tables/columns/values; keep names exactly as in the provided materials."
-        
+        required_schema = QE_SELECTION_SCHEMA
     else:
         raise ValueError("Wrong value for stage. It can only take following values: question_enrichment, candidate_sql_generation, sql_refinement, schema_filtering or qe_combination.")
 
@@ -158,16 +228,9 @@ def create_response(
                 tried.append((loc, str(e)))
         else:
             raise RuntimeError(f"Vertex init failed for all locations: {tried}")
-
-        # strict JSON contract per stage so downstream always gets expected keys
-        contracts = {
-            "question_enrichment": 'Return ONLY JSON: {"chain_of_thought_reasoning": string, "enriched_question": string}',
-            "candidate_sql_generation": 'Return ONLY JSON: {"chain_of_thought_reasoning": string, "SQL": string}',
-            "sql_refinement": 'Return ONLY JSON: {"chain_of_thought_reasoning": string, "SQL": string}',
-            "schema_filtering": 'Return ONLY JSON: {"useful_tables":[string], "useful_columns":[string]}',
-            "qe_combination": 'Return ONLY JSON: {"combined_enrichment_reasoning": string, "combined_enriched_question": string}',
-        }
-        enforced_prompt = f"{prompt}\n\n{contracts.get(stage, '')}"
+        
+        if required_schema is None:
+             raise ValueError(f"Schema object (e.g., QE_SCHEMA) is not defined for stage: {stage}")
 
         m = GenerativeModel(model, system_instruction=system_content)
         cfg = GenerationConfig(
@@ -175,13 +238,14 @@ def create_response(
             top_p=float(top_p),
             max_output_tokens=int(max_tokens) if max_tokens and max_tokens > 64 else 256,
             response_mime_type="application/json",
+            response_schema=required_schema,
         )
         retries = 3  # Set the maximum number of retries
         delay = 10  # Set the initial delay in seconds (e.g., 10 seconds)
         
         while retries > 0:
             try:
-                vresp = m.generate_content([enforced_prompt], generation_config=cfg)
+                vresp = m.generate_content([prompt], generation_config=cfg)
                 # If successful, break the loop
                 break
             except exceptions.ResourceExhausted as e:
@@ -199,11 +263,9 @@ def create_response(
             raise exceptions.ResourceExhausted("Failed to generate content after multiple retries due to resource exhaustion.")
 
         raw = _gemini_extract_text(vresp).strip()
-        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S | re.I)
-        if m: raw = m.group(1)
 
         try:
-            payload = json.loads(raw) if raw else {}
+            payload = json.loads(raw) if raw and raw.startswith("{") else {}
         except Exception:
             payload = {}
         if not isinstance(payload, dict):
@@ -211,80 +273,32 @@ def create_response(
 
         # ── Stage-specific minimal normalization ──────────────────────────────────
         if stage in ("candidate_sql_generation", "sql_refinement"):
-            # Ensure SQL key exists
-            sql = payload.get("SQL")
-            if not isinstance(sql, str) or not sql.strip():
-                for k in ("sql_query","sql","predicted_sql","query"):
-                    v = payload.get(k)
-                    if isinstance(v, str) and v.strip():
-                        sql = v; break
-            if not sql:
-                ms = re.search(r"```sql\s*(.*?)\s*```", raw, re.S|re.I) or re.search(r"(?is)\bSELECT\b[\s\S]+", raw)
-                sql = (ms.group(1) if ms and ms.lastindex else (ms.group(0) if ms else "")).strip()
-            payload["SQL"] = sql or ""
-
-            # Always present for pipeline
-            if not isinstance(payload.get("chain_of_thought_reasoning"), str):
-                payload["chain_of_thought_reasoning"] = ""
-
-        elif stage == "question_enrichment":
-            # 1. Attempt to get enriched_question from the primary payload key
-            eq = payload.get("enriched_question", "")
+            payload["SQL"] = payload.get("SQL", "").strip()
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
             
-            # 2. Check if 'eq' looks like the full JSON object (malformed output)
-            # If 'eq' starts with '{' or is excessively long (heuristic: > 512 chars), 
-            # it likely contains the whole CoT, so we must re-extract the actual question.
-            if isinstance(eq, str) and (eq.strip().startswith("{") or len(eq) > 512):
-                # Use the helper function to try and extract the inner question from the malformed string
-                extracted_eq = _maybe_extract_inner_enriched(eq, "enriched_question")
-                if extracted_eq:
-                    payload["enriched_question"] = extracted_eq
-                else:
-                    # Fallback if inner extraction fails on the malformed string
-                    payload["enriched_question"] = (eq or "").strip()
-            else:
-                # If it didn't look malformed, just clean and set.
-                payload["enriched_question"] = (eq or "").strip() 
-                
-            # 3. Final safety check: If enriched_question is still empty, 
-            # try to extract it directly from the raw model output text.
-            if not payload["enriched_question"]:
-                 payload["enriched_question"] = _maybe_extract_inner_enriched(raw, "enriched_question")
+        # For QE, only need minimal cleanup since schema is enforced
+        elif stage == "question_enrichment":
+            payload["enriched_question"] = payload.get("enriched_question", "").strip()
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
 
-            # 4. Ensure the reasoning field is present (even if empty string)
-            if not isinstance(payload.get("chain_of_thought_reasoning"), str):
-                payload["chain_of_thought_reasoning"] = ""
-
+        # For QE Combination, only need minimal cleanup
         elif stage == "qe_combination":
-            ceq = payload.get("combined_enriched_question") or payload.get("enriched_question") or raw
-            payload["combined_enriched_question"] = _maybe_extract_inner_enriched(ceq, "combined_enriched_question")
-            cer = payload.get("combined_enrichment_reasoning")
-            if not isinstance(cer, str):
-                # try to salvage from raw if model emitted JSON-with-fences
-                try:
-                    raw_clean = _strip_fences(raw)
-                    if raw_clean.startswith("{") and raw_clean.endswith("}"):
-                        j = json.loads(raw_clean)
-                        cer = j.get("combined_enrichment_reasoning", "")
-                except Exception:
-                    pass
-            payload["combined_enrichment_reasoning"] = (cer or "").strip()
+            # Note: The original helper _maybe_extract_inner_enriched is less necessary now
+            payload["combined_enriched_question"] = payload.get("combined_enriched_question", "").strip()
+            payload["combined_enrichment_reasoning"] = payload.get("combined_enrichment_reasoning", "").strip()
 
-
+        # For Schema Filtering
         elif stage == "schema_filtering":
-            # Some Gemini responses use useful_{tables,columns}; map to template key
-            if "tables_and_columns" not in payload or not isinstance(payload["tables_and_columns"], dict):
-                ut = payload.get("useful_tables")
-                uc = payload.get("useful_columns")
-                if isinstance(ut, list) or isinstance(uc, list):
-                    payload["tables_and_columns"] = {"__useful_tables__": ut or [], "__useful_columns__": uc or []}
-                else:
-                    payload["tables_and_columns"] = {}
-            if not isinstance(payload.get("chain_of_thought_reasoning"), str):
-                payload["chain_of_thought_reasoning"] = ""
-
-
-
+            # Map the clean output to the expected key for backward compatibility
+            ut = payload.get("useful_tables")
+            uc = payload.get("useful_columns")
+            if isinstance(ut, list) or isinstance(uc, list):
+                payload["tables_and_columns"] = {"__useful_tables__": ut or [], "__useful_columns__": uc or []}
+            else:
+                payload["tables_and_columns"] = {}
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
+            
+        # Wrap and return the OpenAI-like object
         return _wrap_chat_like(model, payload, getattr(vresp, "usage_metadata", None))
         
     else:

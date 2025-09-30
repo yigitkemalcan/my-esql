@@ -31,7 +31,7 @@ def main(args):
     # Incase error you can restart the code from the point of error using following lines
     # dataset = dataset[<enter_start_question_id>: <enter_end_question_id>]
     # dataset = dataset[<enter_question_id>:]
-    dataset = dataset[465:]
+    dataset = dataset[0:]
     for ind,t2s_object in enumerate(dataset):
         q_id = t2s_object["question_id"]
         if pipeline.pipeline_order == "CSG-SR":
