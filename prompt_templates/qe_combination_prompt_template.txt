@@ -1,22 +1,20 @@
 ### You are an excellent data scientist who links information between a question and a corresponding database perfectly. 
-Your task is to read the original question, the database schema, database column descriptions, database sample values, the available evidence, and the possible SQL conditions **together with multiple enriched question candidates**. Then, **integrate the best, most precise elements** from those candidates into **ONE final enriched question** **and produce a concise, step-by-step combination reasoning** that enumerates the SQL-construction plan implied by the merged question.
+Your task is to read the original question, the database schema, database column descriptions, database sample values, the available evidence, and the possible SQL conditions **together with multiple enriched question candidates and their reasonings**. Then, **evaluate all candidates, select the single best one as a base, and refine it if necessary** to offer the most precise, faithful, and complete translation of the original question's intent using the database schema.
 
 ### Follow the instructions below (adapted to the QE spec):
 # Step 1 - Read the Question Carefully: Understand the main intent and details.
-# Step 2 - Analyze the Database Schema: Use the schema to identify relevant tables, columns, relationships.
-# Step 3 - Review the Database Column Descriptions: Use descriptions to better align terms in the question with schema items.
-# Step 4 - Analyze and Observe the Database Sample Values: Use samples to ground the likely values/filters.
-# Step 5 - Review the Evidence: Use evidence to focus on relevant parts.
-# Step 6 - Analyze the Possible SQL Conditions: Consider the suggested candidate predicates/conditions.
-# Step 7 - Synthesize Across Enriched Candidates: Merge the strongest table/column/value linkages and phrasing from all candidates.
-# Step 8 - Produce One Combined Enriched Question: It must be explicit, clear, faithful to the database items and likely conditions; avoid irrelevant info.
+# Step 2 - Analyze the Database Schema: Identify relevant tables, columns, and relationships.
+# Step 3 - Review the Candidates' Linkages: Compare the tables, columns, and values referenced in each candidate against the schema, descriptions, samples, evidence, and possible SQL conditions.
+# Step 4 - Evaluate Completeness and Precision: Identify the candidate that is the clearest, most complete, and most accurately maps the **original question's intent** to the database elements.
+# Step 5 - Select and Refine the Best Candidate: Choose the single enriched question as a base. If minor changes are necessary to fully align it with the Original Question's intent or the schema (e.g., fixing a capitalization error, removing redundancy), apply the change. The resulting question must minimize ambiguity and maximize correctness for subsequent SQL generation.
+# Step 6 - Return the Final, Refined Question and the Original Reasoning from the chosen candidate.
 
 {FEWSHOT_EXAMPLES}
 
 ### Task:
-Given the original question, database schema, database column descriptions, database samples, evidence, possible SQL conditions, **and the list of enriched question candidates with reasonings**, produce ONE final enriched question that integrates the best elements. 
-Ensure table/column/value names match the database exactly (respect capitalization), and keep it self-contained and unambiguous.
-Do not invent tables, columns, or values that are not present in the provided schema/descriptions/samples/conditions.
+Given the original question, database context, and the list of enriched question candidates (each with its rationale), **select the single best candidate and, if necessary, refine it**. You must return the final, potentially refined enriched question and its **original enrichment reasoning** (the rationale that produced the chosen base candidate).
+
+Ensure table/column/value names match the database exactly (respect capitalization).
 Respond with **a single JSON object only** and **no additional text**.
 
 # Database Schema
@@ -40,6 +38,8 @@ Respond with **a single JSON object only** and **no additional text**.
 # Enriched Question Candidates (Each candidate includes the enriched question and its rationale/reasoning.)
 {ENRICHED_QUESTION_LIST_WITH_REASONING}
 
+
 ### Response JSON schema (output exactly this shape):
-{"combined_enrichment_reasoning": "Provide a concise, step-by-step reasoning as a single text block (you may number the steps).",
-"combined_enriched_question": "ONE final enriched question that integrates the best elements from all candidates and is ready for SQL refinement."}
+```json
+{{"selected_enrichment_reasoning": "The original enrichment reasoning from the chosen candidate (must not be changed).",
+"selected_enriched_question": "The final, best enriched question (may be a minor refinement of the chosen candidate)."}}

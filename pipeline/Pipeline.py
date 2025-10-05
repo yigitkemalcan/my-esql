@@ -319,12 +319,12 @@ class Pipeline():
             )
             try:
                 content = comb_response_obj.choices[0].message.content or {}
-                combined_enrichment_reasoning = content.get('combined_enrichment_reasoning', '')
-                combined_enriched_question = content.get('combined_enriched_question', '')
+                combined_enrichment_reasoning = content.get('selected_enrichment_reasoning', '')
+                combined_enriched_question = content.get('selected_enriched_question', '')
                 # Record the combiner call usage
-                t2s_object["qe_combination"] = {
-                    "combined_enrichment_reasoning": combined_enrichment_reasoning,
-                    "combined_enriched_question": combined_enriched_question,
+                t2s_object["qe_selection"] = {
+                    "selected_enrichment_reasoning": combined_enrichment_reasoning,
+                    "selected_enriched_question": combined_enriched_question,
                     "prompt_tokens": int((comb_response_obj.usage.prompt_tokens or 0)),
                     "completion_tokens": int((comb_response_obj.usage.completion_tokens or 0)),
                     "total_tokens": int((comb_response_obj.usage.total_tokens or 0)),
@@ -370,7 +370,6 @@ class Pipeline():
         # -- Execution Error for Possible SQL is used
         exec_err = t2s_object['candidate_sql_generation']["exec_err"]
         sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question_final, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        print("SQL refinement response:", sql_generation_response_obj)
         try:
             predicted_sql = sql_generation_response_obj.choices[0].message.content['SQL']
             t2s_object["sql_refinement"] = {
@@ -809,15 +808,24 @@ class Pipeline():
     ) -> str:
         """
         Constructs the prompt for the QE combination stage (multi-enriched → one combined).
-        Mirrors QE inputs + adds enriched_questions.
+        Mirrors QE: same template loading, same few-shot source, same section building.
         """
         combination_template_path = os.path.join(os.getcwd(), "prompt_templates/qe_combination_prompt_template.txt")
         qe_combination_prompt_template = extract_qe_combination_prompt_template(combination_template_path)
 
-        # (Optional few-shot for combiner). Keep empty by default.
-        comb_few_shot_examples = ""
+        # Use the SAME few-shot file and logic as Question Enrichment
+        few_shot_data_path = os.path.join(os.getcwd(), "few-shot-data/question_enrichment_few_shot_examples.json")
+        comb_few_shot_examples = qe_combination_few_shot_prep(
+            few_shot_data_path=few_shot_data_path,
+            q_id=q_id,
+            q_db_id=db_id,
+            level_shot_number=self.elsn,
+            schema_existance=self.efsse,
+            enrichment_level=self.enrichment_level,  # "basic" or "complex" to match QE
+            mode=self.mode,
+        )
 
-        # Reuse the exact same sample & schema preparation as QE:
+        # Same sample and schema prep as QE
         db_samples = extract_db_samples_enriched_bm25(
             question, evidence, db_path=db_path, schema_dict=schema_dict, sample_limit=self.db_sample_limit
         )
@@ -834,9 +842,7 @@ class Pipeline():
             db_descriptions=db_descriptions,
             enriched_question_list_with_reasoning=enriched_questions_with_reasoning,
         )
-        # print("qe_combination_prompt:\n", prompt)
         return prompt
-
 
     def qe_combination_module(
         self,

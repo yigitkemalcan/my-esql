@@ -70,7 +70,6 @@ def main(args):
 
         # adding predicted sql in the expected format for the evaluation files
         db_id = t2s_object_prediction["db_id"]
-        print("DEBUG full t2s_object_prediction:", t2s_object_prediction)
         predicted_sql = t2s_object_prediction["predicted_sql"]
         predicted_sql = predicted_sql.replace('\"','').replace('\\\n',' ').replace('\n',' ')
         sql = predicted_sql + '\t----- bird -----\t' + db_id

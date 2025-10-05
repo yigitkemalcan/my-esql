@@ -526,27 +526,158 @@ def fill_prompt_template(template: str, schema: str, db_samples: str, question: 
     # print("The prompt: \n", prompt)
     return prompt
 
+def qe_combination_few_shot_prep(few_shot_data_path: str, q_id: int, q_db_id: str, level_shot_number: str, schema_existance: bool, enrichment_level: str, mode: str) -> str:
+    """
+    The function selects the given number of exemple from the question enrichment few-shot data, and then
+    concatenate the selected exemples in string format. 
+    - The few-shot examples will be selected from the set of data contains databases different than the considered question.
+    - If the question is already annotated, then few-shot examples will be selected from the set of data in which given question is excluded.
+    - Level shot number can be between 0 to 10.
+
+    Arguments:
+        few_shot_data_path (str); path to the file in which few_shot_data exist
+        q_id (int): id of the question
+        q_db_id (str): database ID (database name)
+        level_shot_number (int): number of exemple desired to add in the prompt for each level. 
+        schema_existance (bool): Whether the schema will be provided for the exemplars in the prompt. If it is True, then schema will be provided.
+        enrichment_level (str): Either "basic" or "complex" for selecting enriched questions
+        mode (str): dev mode or test mode
+    Returns:
+        few_shot_exemplars (str): selected and concatenated exemplars for the prompt
+    """
+    bird_sql_path = os.getenv('BIRD_DB_PATH')
+
+    if level_shot_number == 0:
+        return ""
+    
+    few_shot_exemplars = ""
+    # Check level_shot_number
+    if level_shot_number < 0 or level_shot_number > 10:
+        raise ValueError("Invalid few-shot number. The level_shot_number should be between 0 and 10")
+    
+    # Check schema_existance
+    if not isinstance(schema_existance, bool): 
+        raise ValueError("Invalid value for schema_existance variable,it is not a boolean. It should be either True or False.")
+    
+    # Check enrichment_level and set enrichment_label
+    if enrichment_level == "basic":
+        enrichment_label = "question_enriched"
+    elif enrichment_level == "complex":
+        enrichment_label = "question_enriched_v2"
+    else:
+        raise ValueError("Invalid value for enrichment_level. The variable must be either 'basic' or 'complex'.")
+    
+    # Check mode
+    if mode not in ['test', 'dev']:
+        raise ValueError("Invalid value for mode. The variable must be either 'dev' or 'test'.")
+
+    
+    # Get all few-shot exemples
+    all_few_shot_data = load_few_shot_data(few_shot_data_path=few_shot_data_path)
+    # Set difficulty levels
+    levels = ['simple', 'moderate', 'challanging']
+   
+    
+    for level in levels:
+        examples_in_level = all_few_shot_data[level]
+        selected_indexes = []
+        if mode == "dev":
+            # remove the annotated questions if their db_id is the same with the considered question's db_id
+            examples_in_level_tmp = []
+            for example in examples_in_level:
+                if q_db_id != example['db_id']:
+                    examples_in_level_tmp.append(example)
+            examples_in_level = examples_in_level_tmp 
+            # By removing the db_ids that is same with the considered question's db_id, the selection of the same question as an example is prevented in the case of the question was in the annotated data
+        
+        selected_indexes = random.sample(range(0,len(examples_in_level)), level_shot_number) # randomly select exemple_num_for_each_level number of example
+        for ind in selected_indexes:
+            current_question_info_dict = examples_in_level[ind]
+
+            if schema_existance:
+                curr_q_db_id = current_question_info_dict['db_id']
+                db_path = bird_sql_path + f"/{mode}/{mode}_databases/{curr_q_db_id}/{curr_q_db_id}.sqlite"
+                schema = get_schema(db_path)
+                few_shot_exemplars = few_shot_exemplars + "Database Schema: \n" +  schema + '\n'
+            
+            few_shot_exemplars = few_shot_exemplars + "Question: " + current_question_info_dict['question'] + "\n"
+            few_shot_exemplars = few_shot_exemplars + "Evidence: " + current_question_info_dict['evidence'] + "\n"
+            few_shot_exemplars = few_shot_exemplars + "Enrichment Reasoning: " + current_question_info_dict['enrichment_reasoning'] + "\n"
+            few_shot_exemplars = few_shot_exemplars + "Enriched Question: " + current_question_info_dict[enrichment_label] + "\n\n"
+
+    return few_shot_exemplars
+
+
 def extract_qe_combination_prompt_template(template_path: str) -> str:
     with open(template_path, "r", encoding="utf-8") as f:
         return f.read()
 
 def fill_qe_combination_prompt_template(
-    *, template: str, schema: str, db_samples: str, question: str,
-    possible_conditions: str, few_shot_examples: str, evidence: str,
-    db_descriptions: str, enriched_question_list_with_reasoning: List[Dict[str, str]],
+    *,
+    template: str,
+    schema: str,
+    db_samples: str,
+    question: str,
+    possible_conditions: str,
+    few_shot_examples: str,
+    evidence: str,
+    db_descriptions: str,
+    enriched_question_list_with_reasoning: List[Dict[str, str]],
 ) -> str:
-    eq_block = ("\n\n---\n\n").join(
-        f"enriched_question: {item.get('enriched_question','').strip()}\n"
-        f"enrichment_reasoning: {item.get('enrichment_reasoning','').strip()}"
-        for item in (enriched_question_list_with_reasoning or [])
-    ) or "N/A"
-    return (template
-        .replace("{FEWSHOT_EXAMPLES}", few_shot_examples or "")
-        .replace("{SCHEMA}", schema or "N/A")
-        .replace("{DB_SAMPLES}", db_samples or "N/A")
-        .replace("{QUESTION}", question or "N/A")
-        .replace("{POSSIBLE_CONDITIONS}", possible_conditions or "N/A")
-        .replace("{EVIDENCE}", evidence or "N/A")
-        .replace("{DB_DESCRIPTIONS}", db_descriptions or "N/A")
-        .replace("{ENRICHED_QUESTION_LIST_WITH_REASONING}", eq_block))
+    """
+    Matches the structure used by other fill_* methods:
+      - builds sectioned strings for evidence, examples, schema, samples, descriptions, question
+      - uses template.format(...) with the same placeholder keys
+    Also injects the combined enriched candidates block under {ENRICHED_QUESTION_LIST_WITH_REASONING}.
+    """
+
+    # Evidence section
+    if not evidence:
+        evidence_str = "\n### Evidence: No evidence"
+    else:
+        evidence_str = f"\n### Evidence: \n {evidence}"
+
+    # Examples section
+    if not few_shot_examples:
+        examples_str = ""
+    else:
+        examples_str = f"\n### Examples: \n {few_shot_examples}"
+
+    # Schema, descriptions, samples, question sections
+    schema_str = "\n### Database Schema: \n\n" + (schema or "")
+    db_desc_str = "\n### Database Column Descriptions: \n\n" + (db_descriptions or "")
+    db_samples_str = "\n### Database Samples: \n\n" + (db_samples or "")
+    question_str = "\n### Question: \n" + (question or "")
+
+    # Possible conditions section
+    if possible_conditions:
+        possible_conditions_str = "\n### Possible SQL Conditions: \n" + possible_conditions
+    else:
+        possible_conditions_str = "\n### Possible SQL Conditions: No strict conditions were found. Please consider the database schema and keywords while combining the enriched candidates."
+
+    # Enriched candidates list
+    if enriched_question_list_with_reasoning:
+        eq_block = ("\n\n---\n\n").join(
+            f"enriched_question: {item.get('enriched_question','').strip()}\n"
+            f"enrichment_reasoning: {item.get('enrichment_reasoning','').strip()}"
+            for item in enriched_question_list_with_reasoning
+        )
+    else:
+        eq_block = "N/A"
+
+    prompt = template.format(
+        FEWSHOT_EXAMPLES=examples_str,
+        SCHEMA=schema_str,
+        DB_SAMPLES=db_samples_str,
+        QUESTION=question_str,
+        EVIDENCE=evidence_str,
+        DB_DESCRIPTIONS=db_desc_str,
+        POSSIBLE_CONDITIONS=possible_conditions_str,
+        ENRICHED_QUESTION_LIST_WITH_REASONING=eq_block,
+    )
+
+    # Cleanup for any fenced-json artifacts
+    prompt = prompt.replace("```json{", "{").replace("}```", "}").replace("{{", "{").replace("}}", "}")
+    return prompt
+
 

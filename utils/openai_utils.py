@@ -46,16 +46,16 @@ QE_SCHEMA = {
 QE_SELECTION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
-        "combined_enrichment_reasoning": {
-            "type": "STRING",
-            "description": "The reasoning of the combined enriched question."
+        "selected_enrichment_reasoning": {
+            "type": "string",
+            "description": "The enrichment reasoning that produced the best enriched question."
         },
-        "combined_enriched_question": {
-            "type": "STRING",
-            "description": "The single, best combined question."
-        },
+        "selected_enriched_question": {
+            "type": "string",
+            "description": "The single best enriched question to use, possibly with minor refinements."
+        }
     },
-    "required": ["combined_enrichment_reasoning", "combined_enriched_question"],
+    "required": ["selected_enrichment_reasoning", "selected_enriched_question"],
 }
 
 SCHEMA_FILTERING_SCHEMA = {
@@ -186,7 +186,7 @@ def create_response(
         system_content = "You are an excellent data scientist. You can capture the link between a question and corresponding database and determine the useful database items (tables and columns) perfectly. Your objective is to analyze and understand the essence of the given question, corresponding database schema, database column descriptions, samples and evidence and then select the useful database items such as tables and columns. This database item filtering is essential for eliminating unnecessary information in the database so that corresponding structured query language (SQL) of the question can be generated correctly in later steps."
         required_schema = SCHEMA_FILTERING_SCHEMA
     elif stage == "qe_combination":
-        system_content = "You are an excellent data scientist who links information between a question and its database. You will read multiple enriched-question candidates along with the schema, descriptions, samples, evidence, and possible SQL conditions, and synthesize ONE clear, faithful combined enriched question. Do not invent tables/columns/values; keep names exactly as in the provided materials."
+        system_content = "You are an expert Data Scientist and a **Question Evaluation Specialist**. Your critical task is to rigorously evaluate all enriched question candidates by comparing them against the **Original Question's intent**, the database schema, and all provided evidence. Select the **single best candidate** that provides the most precise, faithful, and complete translation of the **Original Question** into database-centric terms. You may apply minor refinements to the selected question for accuracy, but you **must return the original reasoning** of the chosen candidate without any changes." # <--- FIX 3: Updated instructions
         required_schema = QE_SELECTION_SCHEMA
     else:
         raise ValueError("Wrong value for stage. It can only take following values: question_enrichment, candidate_sql_generation, sql_refinement, schema_filtering or qe_combination.")
@@ -284,8 +284,8 @@ def create_response(
         # For QE Combination, only need minimal cleanup
         elif stage == "qe_combination":
             # Note: The original helper _maybe_extract_inner_enriched is less necessary now
-            payload["combined_enriched_question"] = payload.get("combined_enriched_question", "").strip()
-            payload["combined_enrichment_reasoning"] = payload.get("combined_enrichment_reasoning", "").strip()
+            payload["selected_enriched_question"] = payload.get("selected_enriched_question", "").strip()
+            payload["selected_enrichment_reasoning"] = payload.get("selected_enrichment_reasoning", "").strip()
 
         # For Schema Filtering
         elif stage == "schema_filtering":
