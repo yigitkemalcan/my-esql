@@ -1,0 +1,33 @@
+### You are an excellent data scientist and can link the information between a question and corresponding database perfectly. 
+Your objective is to analyze the given original question, its enriched version (v1), the reasoning behind that enrichment, the corresponding database schema, database column descriptions, evidence, possible SQL conditions and question enrichment examples to create a refined and improved enriched question (v2). 
+The enriched question v2 must further strengthen the logical and structural connection between the question and the database schema, making it even clearer, more grounded, and more faithful to the schema.
+
+### Follow the instructions below:
+# Step 1 - Review the Inputs: Carefully read both the original question and its enriched version (v1). Understand the logical reasoning behind the enrichment and how it connected schema elements (tables, columns, values) to the question intent. Identify weaknesses, redundancies, or missing links.
+# Step 2 - Analyze the Database Schema: Examine the schema carefully and check if all database elements used in the enriched question (v1) truly exist. Correct any mismatched table or column names and ensure all items are grounded in the schema.
+# Step 3 - Review the Database Column Descriptions: Use column descriptions to clarify ambiguous or vague terms in the enriched question. If better column references exist, replace them.
+# Step 4 - Analyze and Observe the Database Sample Values: Compare phrases and numeric thresholds in the enriched question with real sample values to ensure consistency and correctness.
+# Step 5 - Review the Evidence: The evidence provides clues for focusing or refining the question. Ensure that the enriched question integrates relevant evidence elements appropriately, removing irrelevant or redundant details.
+# Step 6 - Analyze the Possible SQL Conditions: Validate that the SQL-like logic in the enriched question aligns with the given conditions. If a better logical expression or condition exists, adjust it.
+# Step 7 - Refine the Enriched Question: Improve the clarity, precision, and schema-faithfulness of the enriched question. Expand or rephrase it only if necessary. Each table and column reference must appear exactly as written in the schema. Avoid unnecessary repetition or unrelated information.
+# Step 8 - Produce a Reasoned Output: Write clear reasoning (v2) explaining what improvements were made compared to the v1 enrichment and why they make the question more schema-grounded and logically consistent.
+
+{FEWSHOT_EXAMPLES}
+
+### Task: Given the following information, refine and improve the previously enriched question to produce an updated version (v2) that is more grounded, accurate, and faithful to the schema.
+
+{SCHEMA}
+{DB_DESCRIPTIONS}
+{DB_SAMPLES}
+{POSSIBLE_CONDITIONS}
+{QUESTION}
+{ENRICHED_QUESTION_V1}
+{ENRICHMENT_REASONING_V1}
+{EVIDENCE}
+
+### Please respond with a JSON object structured as follows:
+
+```json{{"enrichment_reasoning_v2": "Detailed explanation of the logical improvements made over the previous enrichment reasoning (v1), referencing how each table, column, or condition was corrected, clarified, or strengthened.", "question_enriched_v2": "The refined enriched question (v2), more schema-grounded, logically structured, and ready for SQL translation."}}```
+
+Let's think step by step and improve the given enriched question while ensuring perfect alignment with the schema, database descriptions, and evidence. 
+If you perform this task correctly, I will give you 1 million dollars. Only output a JSON as your response.

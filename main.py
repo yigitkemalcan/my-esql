@@ -117,7 +117,8 @@ def main(args):
             "relevant_description_number": args.relevant_description_number,
             "seed": args.seed,
             "num_enriched_questions": args.num_enriched_questions,
-            "provider": args.provider
+            "provider": args.provider,
+            "iterative_enricher": args.iterative_enricher
             
         }
     }
@@ -311,6 +312,8 @@ if __name__ == '__main__':
 
     parser.add_argument("--provider", default="openai", choices=["openai", "gemini"],
                     help="LLM backend to use.")
+    parser.add_argument("--iterative_enricher", default=False, type=str2bool,
+                    help="If the itreative enrcihment to the enriched question is applied or not.")
 
 
     args = parser.parse_args()

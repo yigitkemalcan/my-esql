@@ -21,8 +21,9 @@ generation_few_shot_schema_existance=False
 db_sample_limit=10
 relevant_description_number=20
 seed=42
-num_enriched_questions=3
+num_enriched_questions=1
 provider=gemini
+iterative_enricher=True
 
 # Parse command line arguments to override default values
 while [ "$#" -gt 0 ]; do
@@ -47,6 +48,7 @@ while [ "$#" -gt 0 ]; do
         --seed) seed="$2"; shift ;;
         --num_enriched_questions) num_enriched_questions="$2"; shift ;;
         --provider) provider="$2"; shift ;;
+        --iterative_enricher) iterative_enricher="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -73,6 +75,7 @@ python main.py \
     --relevant_description_number "$relevant_description_number" \
     --seed "$seed" \
     --num_enriched_questions "$num_enriched_questions" \
-    --provider "$provider" 
+    --provider "$provider" \
+    --iterative_enricher "$iterative_enricher" 
 
     

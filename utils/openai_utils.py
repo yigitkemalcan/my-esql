@@ -79,6 +79,20 @@ SCHEMA_FILTERING_SCHEMA = {
     "required": ["chain_of_thought_reasoning", "useful_tables", "useful_columns"],
 }
 
+ITERATIVE_ENRICH_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "enrichment_reasoning_v2": {
+            "type": "STRING",
+            "description": "Why v2 improves v1. Bullet style allowed."
+        },
+        "question_enriched_v2": {
+            "type": "STRING",
+            "description": "The refined one-step-better enriched question."
+        }
+    },
+    "required": ["enrichment_reasoning_v2", "question_enriched_v2"],
+}
 
 def _wrap_chat_like(model: str, content: Any, usage: Any):
     um = usage or SimpleNamespace(prompt_token_count=0, candidates_token_count=0, total_token_count=0)
@@ -188,6 +202,9 @@ def create_response(
     elif stage == "qe_combination":
         system_content = "You are an expert Data Scientist and a **Question Evaluation Specialist**. Your critical task is to rigorously evaluate all enriched question candidates by comparing them against the **Original Question's intent**, the database schema, and all provided evidence. Select the **single best candidate** that provides the most precise, faithful, and complete translation of the **Original Question** into database-centric terms. You may apply minor refinements to the selected question for accuracy, but you **must return the original reasoning** of the chosen candidate without any changes." # <--- FIX 3: Updated instructions
         required_schema = QE_SELECTION_SCHEMA
+    elif stage == "iterative_enricher":
+        system_content = "You are an excellent data scientist who takes an already enriched question (v1) and improves it one step further to produce v2. Validate every referenced table, column, and value against the schema and samples. Fix mismatches, resolve ambiguity, and specify joins, keys, filters, and aggregates only when supported. Use exact schema capitalization. Do not invent schema items. If v1 is already optimal, return it unchanged as v2 and justify briefly. Output JSON only."
+        required_schema = ITERATIVE_ENRICH_SCHEMA
     else:
         raise ValueError("Wrong value for stage. It can only take following values: question_enrichment, candidate_sql_generation, sql_refinement, schema_filtering or qe_combination.")
 
@@ -286,6 +303,10 @@ def create_response(
             # Note: The original helper _maybe_extract_inner_enriched is less necessary now
             payload["selected_enriched_question"] = payload.get("selected_enriched_question", "").strip()
             payload["selected_enrichment_reasoning"] = payload.get("selected_enrichment_reasoning", "").strip()
+        
+        elif stage == "iterative_enricher":
+            payload["question_enriched_v2"] = payload.get("question_enriched_v2", "").strip()
+            payload["enrichment_reasoning_v2"] = payload.get("enrichment_reasoning_v2", "").strip()
 
         # For Schema Filtering
         elif stage == "schema_filtering":

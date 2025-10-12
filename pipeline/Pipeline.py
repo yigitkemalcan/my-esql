@@ -41,6 +41,7 @@ class Pipeline():
 
         self.num_enriched_questions = getattr(args, "num_enriched_questions", 1)
         self.provider = getattr(args, "provider", "openai")
+        self.iterative_enricher = getattr(args, "iterative_enricher", False)
 
     def convert_message_content_to_dict(self, response_object: Dict) -> Dict:
         """
@@ -297,15 +298,48 @@ class Pipeline():
 
         # If only one variant, keep the original Experiment-24 concatenation behavior
         elif len(enriched_variants) == 1:
-            t2s_object["question_enrichment"] = {
+            t2s_object["question_enrichment_first_run"] = {
                 "enrichment_reasoning": qe_first_reasoning,
                 "enriched_question": qe_first_enriched,
                 "prompt_tokens": qe_runs_usage[0]["prompt_tokens"] if qe_runs_usage else 0,
                 "completion_tokens": qe_runs_usage[0]["completion_tokens"] if qe_runs_usage else 0,
                 "total_tokens": qe_runs_usage[0]["total_tokens"] if qe_runs_usage else 0,
             }
-            # Experiment-24: concat original question + reasoning + enriched_question
-            enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
+            if self.iterative_enricher and self.num_enriched_questions == 1:
+                iter_resp = self.iterative_enricher_module(
+                    db_path=db_path,
+                    q_id=q_id,
+                    db_id=db_id,
+                    question=question,
+                    enriched_question_v1=qe_first_enriched,
+                    enrichment_reasoning_v1=qe_first_reasoning,
+                    evidence=evidence,
+                    possible_conditions=possible_conditions,
+                    schema_dict=original_schema_dict,
+                    db_descriptions=db_descriptions
+                )
+                try:
+                    content = iter_resp.choices[0].message.content or {}
+                    v2_text = content.get("question_enriched_v2", "").strip()
+                    v2_reason = content.get("enrichment_reasoning_v2", "").strip()
+
+                    t2s_object["iterative_enricher"] = {
+                        "question_enriched_v2": v2_text,
+                        "enrichment_reasoning_v2": v2_reason,
+                        "prompt_tokens": int(getattr(iter_resp.usage, "prompt_tokens", 0) or 0),
+                        "completion_tokens": int(getattr(iter_resp.usage, "completion_tokens", 0) or 0),
+                        "total_tokens": int(getattr(iter_resp.usage, "total_tokens", 0) or 0),
+                    }
+
+                    if v2_text:
+                        enriched_question_final = question + "\n" + v2_reason + "\n" + v2_text
+                    else:
+                        enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
+                except Exception:
+                    enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
+
+            else:
+                enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
 
         # If multiple variants, call the new COMBINATION module
         else:
@@ -886,6 +920,104 @@ class Pipeline():
         except:
             return response_object
         return response_object
+
+
+    def construct_iterative_enricher_prompt(
+        self,
+        *,
+        db_path: str,
+        q_id: int,
+        db_id: str,
+        question: str,
+        enriched_question_v1: str,
+        enrichment_reasoning_v1: str,
+        evidence: str,
+        possible_conditions: str,
+        schema_dict: dict,
+        db_descriptions: str,
+    ) -> str:
+        template_path = os.path.join(os.getcwd(), "prompt_templates/iterative_enricher_prompt_template.txt")
+        template = extract_iterative_enricher_prompt_template(template_path)
+
+        # few-shots taken from the same pool as QE, but using enrichment_level="complex" to surface v2 examples
+        few_shot_path = os.path.join(os.getcwd(), "few-shot-data/question_enrichment_few_shot_examples.json")
+        fewshots = iterative_enricher_few_shot_prep(
+            few_shot_data_path=few_shot_path,
+            q_id=q_id,
+            q_db_id=db_id,
+            level_shot_number=self.elsn,
+            schema_existance=self.efsse,
+            enrichment_level=self.enrichment_level,
+            mode=self.mode,
+        )
+
+        # samples and schema consistent with QE
+        db_samples = extract_db_samples_enriched_bm25(
+            question,
+            evidence,
+            db_path=db_path,
+            schema_dict=schema_dict,
+            sample_limit=self.db_sample_limit
+        )
+        schema_text = generate_schema_from_schema_dict(db_path=db_path, schema_dict=schema_dict)
+
+        prompt = fill_iterative_enricher_prompt_template(
+            template=template,
+            schema=schema_text,
+            db_samples=db_samples,
+            question=question,
+            enriched_question_v1=enriched_question_v1,
+            enrichment_reasoning_v1=enrichment_reasoning_v1,
+            possible_conditions=possible_conditions,
+            few_shot_examples=fewshots,
+            evidence=evidence,
+            db_descriptions=db_descriptions
+        )
+        return prompt
+
+    def iterative_enricher_module(
+        self,
+        *,
+        db_path: str,
+        q_id: int,
+        db_id: str,
+        question: str,
+        enriched_question_v1: str,
+        enrichment_reasoning_v1: str,
+        evidence: str,
+        possible_conditions: str,
+        schema_dict: dict,
+        db_descriptions: str,
+    ):
+        prompt = self.construct_iterative_enricher_prompt(
+            db_path=db_path,
+            q_id=q_id,
+            db_id=db_id,
+            question=question,
+            enriched_question_v1=enriched_question_v1,
+            enrichment_reasoning_v1=enrichment_reasoning_v1,
+            evidence=evidence,
+            possible_conditions=possible_conditions,
+            schema_dict=schema_dict,
+            db_descriptions=db_descriptions
+        )
+        resp = create_response(
+            stage="iterative_enricher",
+            prompt=prompt,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            n=self.n,
+            provider=self.provider
+        )
+        try:
+            resp = self.convert_message_content_to_dict(resp)
+        except:
+            return resp
+        return resp
+
+
 
 
     
