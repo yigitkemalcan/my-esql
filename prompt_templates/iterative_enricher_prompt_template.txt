@@ -3,6 +3,9 @@ Your objective is to analyze the given original question, its enriched version (
 The enriched question v2 must further strengthen the logical and structural connection between the question and the database schema, making it even clearer, more grounded, and more faithful to the schema.
 
 ### Follow the instructions below:
+Identity rule:
+- If no strictly necessary improvement exists, set `question_enriched_v2` = v1 **byte-for-byte**. Do not paraphrase, reformat, or touch whitespace.
+- When unchanged, write `enrichment_reasoning_v2` that states v1 was already optimal and why.
 # Step 1 - Review the Inputs: Carefully read both the original question and its enriched version (v1). Understand the logical reasoning behind the enrichment and how it connected schema elements (tables, columns, values) to the question intent. Identify weaknesses, redundancies, or missing links.
 # Step 2 - Analyze the Database Schema: Examine the schema carefully and check if all database elements used in the enriched question (v1) truly exist. Correct any mismatched table or column names and ensure all items are grounded in the schema.
 # Step 3 - Review the Database Column Descriptions: Use column descriptions to clarify ambiguous or vague terms in the enriched question. If better column references exist, replace them.
