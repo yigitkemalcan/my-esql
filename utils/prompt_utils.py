@@ -71,6 +71,31 @@ def question_relevant_descriptions_prep(database_description_path, question, rel
 
     return db_descriptions_str
 
+def relevant_descriptions_prep(database_description_path: str, question: str, relevant_description_number: int) -> str:
+    """
+    Wrapper for schema-relevant descriptions (CHESS-style IR).
+
+    Uses get_relevant_db_descriptions (BM25 over db_description.csv) to fetch
+    the top-N most relevant column descriptions and concatenates them into
+    a single string, one per line, prefixed with '# '.
+
+    Arguments:
+        database_description_path (str): Path to the directory containing database description CSV files.
+        question (str): The natural language question.
+        relevant_description_number (int): Number of top ranked column descriptions.
+
+    Returns:
+        str: Concatenated relevant database item descriptions.
+    """
+    relevant_db_descriptions = get_relevant_db_descriptions(
+        database_description_path,
+        question,
+        relevant_description_number
+    )
+    db_descriptions_str = ""
+    for description in relevant_db_descriptions:
+        db_descriptions_str += f"# {description} \n"
+    return db_descriptions_str
 
 def db_column_meaning_prep(database_column_meaning_path: str, db_id: str)-> str:
     """
@@ -822,5 +847,49 @@ def fill_iterative_enricher_prompt_template(
     prompt = prompt.replace("```json{", "{").replace("}```", "}").replace("{{", "{").replace("}}", "}")
     return prompt
 
+def extract_extract_keyword_prompt_template(template_path: str) -> str:
+    with open(template_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+_DEFAULT_KW_FEWSHOTS = """Example 1:
+Question: "What is the annual revenue of Acme Corp in the United States for 2022?"
+Hint: "Focus on financial reports and U.S. market performance for the fiscal year 2022."
+["annual revenue", "Acme Corp", "United States", "2022", "financial reports", "U.S. market performance", "fiscal year"]
+
+Example 2:
+Question: "In the Winter and Summer Olympics of 1988, which game has the most number of competitors? Find the difference of the number of competitors between the two games."
+Hint: "the most number of competitors refer to MAX(COUNT(person_id)); SUBTRACT(COUNT(person_id where games_name = '1988 Summer'), COUNT(person_id where games_name = '1988 Winter'));"
+["Winter Olympics", "Summer Olympics", "1988", "1988 Summer", "Summer", "1988 Winter", "Winter", "number of competitors", "difference", "MAX(COUNT(person_id))", "games_name", "person_id"]
+
+Example 3:
+Question: "How many Men's 200 Metres Freestyle events did Ian James Thorpe compete in?"
+Hint: "Men's 200 Metres Freestyle events refer to event_name = 'Swimming Men''s 200 metres Freestyle'; events compete in refers to event_id;"
+["Swimming Men's 200 metres Freestyle", "Ian James Thorpe", "Ian", "James", "Thorpe", "compete in", "event_name", "event_id"]
+"""
+
+def fill_extract_keywords_prompt_template(
+    *,
+    template: str,
+    question: str,
+    hint: str,
+) -> str:
+    """Render KW prompt with the same header style and cleanup as your iterative enricher."""
+    hint_block = "\n### Hint: No hint" if not hint else f"\n### Hint: \n {hint}"
+    question_block = "\n### Question: \n" + (question or "")
+    examples_block = "\n### Examples: \n " + _DEFAULT_KW_FEWSHOTS
+
+    prompt = template.format(
+        FEWSHOT_EXAMPLES=examples_block,
+        QUESTION=question_block,
+        HINT=hint_block,
+    )
+    # Normalize fence artifacts (keep parity with your other fillers)
+    prompt = (
+        prompt.replace("```json{", "{")
+              .replace("}```", "}")
+              .replace("{{", "{")
+              .replace("}}", "}")
+    )
+    return prompt
 
 

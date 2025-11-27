@@ -1,0 +1,635 @@
+[
+    {
+        "question_id": 0,
+        "db_id": "california_schools",
+        "question": "What is the highest eligible free rate for K-12 students in the schools in Alameda County?",
+        "evidence": "Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`\n'Jane Frederick High' is a value of schools.School; 'Freedom High' is a value of schools.School; 'Fresno High' is a value of schools.School; 'West Ranch High' is a value of schools.School; 'Emeryville Preschool Students' is a value of schools.School; 'Independent Study' is a value of schools.School; 'Victress Bower School for Exceptional Students' is a value of schools.School; 'MethodSchools' is a value of schools.School; 'Preschool' is a value of schools.School; 'Summit Schools' is a value of schools.School; 'Avon School' is a value of schools.School; '601 School' is a value of schools.School; 'Alameda County Community' is a value of schools.School; 'Alameda County Opportunity' is a value of schools.School; 'Alameda County Juvenile Hall/Court' is a value of schools.School; 'Coast County' is a value of schools.School; 'Marina Center for Career Training' is a value of schools.School; 'Fresno County Court' is a value of schools.School; 'Nord Country' is a value of schools.School; 'Kings County TMR' is a value of schools.School; 'Pacific Valley (K-12)' is a value of schools.School; 'Holmes Elementary' is a value of schools.School; 'Gant Elementary' is a value of schools.School; 'Monument Middle' is a value of schools.School; 'Goldenrod Elementary' is a value of schools.School; '4600 Student Ln.' is a value of schools.StreetAbr; '3412 State St.' is a value of schools.StreetAbr; '112 S. Wood St.' is a value of schools.StreetAbr; '3835 Freeport Blvd.' is a value of schools.StreetAbr; '4600 Student Ln.' is a value of schools.MailStrAbr; '112 S. Wood St.' is a value of schools.MailStrAbr; '4600 Student Lane' is a value of schools.MailStreet; '830 Fresno Street' is a value of schools.MailStreet; '1405 French Street' is a value of schools.MailStreet; '400 Fremont Street' is a value of schools.MailStreet; 'Preschool' is a value of schools.SOCType; 'Preschool' is a value of schools.EILName; 'Schooler' is a value of schools.AdmLName1; 'Vollmer' is a value of schools.AdmLName1; 'Bellmer' is a value of schools.AdmLName1; 'Rolle' is a value of schools.AdmLName1; 'Canyon County' is a value of schools.City; 'Canyon Country' is a value of schools.City; 'Canyon County' is a value of schools.MailCity; 'Canyon Country' is a value of schools.MailCity; 'Alameda County Office of Education' is a value of schools.District; 'Inyo County ROP' is a value of schools.District; '830 Fresno Street' is a value of schools.Street; '500 East French Street' is a value of schools.Street; '3835 Freeport Boulevard' is a value of schools.Street; '400 Fremont Street' is a value of schools.Street; '1405 French Street' is a value of schools.Street; 'Jane Frederick High' is a value of frpm.School Name; 'Freedom High' is a value of frpm.School Name; 'West Fresno Middle' is a value of frpm.School Name; 'Fresno High' is a value of frpm.School Name; 'Victress Bower School for Exceptional Students' is a value of frpm.School Name; 'MethodSchools' is a value of frpm.School Name; 'Alameda County Community' is a value of frpm.School Name; 'Alameda County Juvenile Hall/Court' is a value of frpm.School Name; 'Fresno County Court' is a value of frpm.School Name; 'Nord Country' is a value of frpm.School Name; 'Pacific Valley (K-12)' is a value of frpm.School Name; 'Holmes Elementary' is a value of frpm.School Name; 'Preschool' is a value of frpm.School Type; 'Freedom High' is a value of satscores.sname; 'West Ranch High' is a value of satscores.sname; 'Alameda County Office of Education' is a value of satscores.dname;",
+        "SQL": "SELECT `Free Meal Count (K-12)` / `Enrollment (K-12)` FROM frpm WHERE `County Name` = 'Alameda' ORDER BY (CAST(`Free Meal Count (K-12)` AS REAL) / `Enrollment (K-12)`) DESC LIMIT 1",
+        "difficulty": "simple",
+        "keywords": [
+            "highest eligible free rate",
+            "K-12 students",
+            "schools",
+            "Alameda County",
+            "Eligible free rate for K-12",
+            "Free Meal Count (K-12)",
+            "Enrollment (K-12)"
+        ],
+        "similar_entities": {
+            "schools": {
+                "School": [
+                    "Jane Frederick High",
+                    "Freedom High",
+                    "Fresno High",
+                    "West Ranch High",
+                    "Emeryville Preschool Students",
+                    "Independent Study",
+                    "Victress Bower School for Exceptional Students",
+                    "MethodSchools",
+                    "Preschool",
+                    "Summit Schools",
+                    "Avon School",
+                    "601 School",
+                    "Alameda County Community",
+                    "Alameda County Opportunity",
+                    "Alameda County Juvenile Hall/Court",
+                    "Coast County",
+                    "Marina Center for Career Training",
+                    "Fresno County Court",
+                    "Nord Country",
+                    "Kings County TMR",
+                    "Pacific Valley (K-12)",
+                    "Holmes Elementary",
+                    "Gant Elementary",
+                    "Monument Middle",
+                    "Goldenrod Elementary"
+                ],
+                "StreetAbr": [
+                    "4600 Student Ln.",
+                    "3412 State St.",
+                    "112 S. Wood St.",
+                    "3835 Freeport Blvd."
+                ],
+                "MailStrAbr": [
+                    "4600 Student Ln.",
+                    "112 S. Wood St."
+                ],
+                "MailStreet": [
+                    "4600 Student Lane",
+                    "830 Fresno Street",
+                    "1405 French Street",
+                    "400 Fremont Street"
+                ],
+                "SOCType": [
+                    "Preschool"
+                ],
+                "EILName": [
+                    "Preschool"
+                ],
+                "AdmLName1": [
+                    "Schooler",
+                    "Vollmer",
+                    "Bellmer",
+                    "Rolle"
+                ],
+                "City": [
+                    "Canyon County",
+                    "Canyon Country"
+                ],
+                "MailCity": [
+                    "Canyon County",
+                    "Canyon Country"
+                ],
+                "District": [
+                    "Alameda County Office of Education",
+                    "Inyo County ROP"
+                ],
+                "Street": [
+                    "830 Fresno Street",
+                    "500 East French Street",
+                    "3835 Freeport Boulevard",
+                    "400 Fremont Street",
+                    "1405 French Street"
+                ]
+            },
+            "frpm": {
+                "School Name": [
+                    "Jane Frederick High",
+                    "Freedom High",
+                    "West Fresno Middle",
+                    "Fresno High",
+                    "Victress Bower School for Exceptional Students",
+                    "MethodSchools",
+                    "Alameda County Community",
+                    "Alameda County Juvenile Hall/Court",
+                    "Fresno County Court",
+                    "Nord Country",
+                    "Pacific Valley (K-12)",
+                    "Holmes Elementary"
+                ],
+                "School Type": [
+                    "Preschool"
+                ]
+            },
+            "satscores": {
+                "sname": [
+                    "Freedom High",
+                    "West Ranch High"
+                ],
+                "dname": [
+                    "Alameda County Office of Education"
+                ]
+            }
+        },
+        "filtered_columns": {
+            "frpm": [
+                "CDSCode",
+                "CDSCode",
+                "County Code",
+                "County Code",
+                "District Code",
+                "District Code",
+                "County Name",
+                "County Name",
+                "District Name",
+                "District Name",
+                "School Name",
+                "School Name",
+                "District Type",
+                "District Type",
+                "School Type",
+                "School Type",
+                "Low Grade",
+                "Low Grade",
+                "Enrollment (K-12)",
+                "Enrollment (K-12)",
+                "Free Meal Count (K-12)",
+                "Free Meal Count (K-12)",
+                "Percent (%) Eligible Free (K-12)",
+                "Percent (%) Eligible Free (K-12)",
+                "FRPM Count (K-12)",
+                "FRPM Count (K-12)",
+                "Percent (%) Eligible FRPM (K-12)",
+                "Percent (%) Eligible FRPM (K-12)",
+                "Enrollment (Ages 5-17)",
+                "Enrollment (Ages 5-17)",
+                "Free Meal Count (Ages 5-17)",
+                "Free Meal Count (Ages 5-17)",
+                "Percent (%) Eligible Free (Ages 5-17)",
+                "Percent (%) Eligible Free (Ages 5-17)",
+                "FRPM Count (Ages 5-17)",
+                "FRPM Count (Ages 5-17)",
+                "Percent (%) Eligible FRPM (Ages 5-17)",
+                "Percent (%) Eligible FRPM (Ages 5-17)"
+            ],
+            "satscores": [
+                "sname",
+                "sname",
+                "dname",
+                "dname",
+                "cname",
+                "cname",
+                "enroll12",
+                "enroll12"
+            ],
+            "schools": [
+                "County",
+                "County",
+                "District",
+                "District",
+                "School",
+                "School",
+                "Street",
+                "Street",
+                "StreetAbr",
+                "StreetAbr",
+                "City",
+                "City",
+                "MailStreet",
+                "MailStreet",
+                "MailStrAbr",
+                "MailStrAbr",
+                "MailCity",
+                "MailCity",
+                "SOCType",
+                "SOCType",
+                "EILName",
+                "EILName",
+                "AdmLName1",
+                "AdmLName1"
+            ]
+        },
+        "selected_tables": [
+            "frpm"
+        ],
+        "selected_columns": {},
+        "candidate_sql_generation": {
+            "sql_generation_reasoning": "The user is asking for the highest 'eligible free rate for K-12 students' in schools located in 'Alameda County'. First, I need to identify the tables that contain the necessary information. The `frpm` table contains 'Free Meal Count (K-12)' and 'Enrollment (K-12)', which are used to calculate the eligible free rate. The `schools` table contains the 'County' information. I will join these two tables using the school name. The `frpm` table has a column named 'School Name' and the `schools` table has a column named 'School'. I will filter the results to include only schools in 'Alameda County' from the `schools` table. Then, I will calculate the eligible free rate using the formula: `Free Meal Count (K-12)` / `Enrollment (K-12)`. It's important to cast the numerator to REAL to ensure floating-point division and to handle cases where 'Enrollment (K-12)' might be zero or null to prevent division errors. Finally, I will find the maximum of these calculated rates.",
+            "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.`School Name` = T2.`School` WHERE T2.`County` = 'Alameda County' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+            "exec_err": "",
+            "prompt_tokens": 4320,
+            "completion_tokens": 357,
+            "total_tokens": 5046
+        },
+        "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.`School Name` = T2.`School` WHERE T2.`County` = 'Alameda County' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+        "question_enrichment": {
+            "enrichment_reasoning": "The user is asking for the highest 'eligible free rate for K-12 students' for schools located in 'Alameda County'.\n\n1.  **Identify the calculation for 'eligible free rate for K-12':** The evidence explicitly states that 'Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`'. These columns are found in the `frpm` table.\n2.  **Identify the table for school information and county:** The `frpm` table contains `County Name` which can be used to filter for 'Alameda County'. The `schools` table also has a `County` column, but `frpm.County Name` is sufficient and avoids a join if not strictly necessary for other parts of the query.\n3.  **Identify the condition for 'Alameda County':** The condition will be `frpm.County Name = 'Alameda'`.\n4.  **Handle potential division by zero:** The `Enrollment (K-12)` column is in the denominator of the rate calculation. To prevent division by zero errors, a condition `frpm.Enrollment (K-12) > 0` must be applied.\n5.  **Determine the aggregation:** The question asks for the 'highest' rate, which implies using the `MAX` aggregate function on the calculated rate.\n6.  **Formulate the enriched question:** Combine these elements to clearly state the required calculation, conditions, and aggregation, referencing the specific database tables and columns.",
+            "enriched_question": "Please find the highest eligible free rate for K-12 students, calculated as `frpm`.`Free Meal Count (K-12)` divided by `frpm`.`Enrollment (K-12)`, for schools located in 'Alameda County' (`frpm`.`County Name` = 'Alameda'). Ensure that the `frpm`.`Enrollment (K-12)` is greater than 0 to avoid division by zero. Select the maximum value of this calculated rate.",
+            "prompt_tokens": 10195,
+            "completion_tokens": 451,
+            "total_tokens": 11828
+        },
+        "sql_refinement": {
+            "sql_generation_reasoning": "The user is asking for the highest 'eligible free rate for K-12 students' in 'Alameda County'.\n\n1.  **Identify the calculation for 'eligible free rate for K-12'**: According to the evidence, the 'eligible free rate for K-12' is calculated as `Free Meal Count (K-12)` divided by `Enrollment (K-12)`. Both of these columns are present in the `frpm` table.\n2.  **Identify the table for county information**: The `frpm` table contains a `County Name` column, which can be used to filter for 'Alameda County'. This eliminates the need for a join with the `schools` table, as all necessary information is available in `frpm`.\n3.  **Formulate the condition for 'Alameda County'**: Based on the possible conditions and the schema, `frpm.County Name = 'Alameda'` is the correct way to filter for schools in Alameda County.\n4.  **Handle potential division by zero**: The `Enrollment (K-12)` column is in the denominator. To prevent division by zero errors, a condition `frpm.`Enrollment (K-12)` > 0` must be included.\n5.  **Determine the aggregation**: The question asks for the 'highest' rate, which requires the `MAX` aggregate function.\n6.  **Construct the SQL query**: Combine these elements to form the final query. The `CAST(... AS REAL)` is used to ensure floating-point division for accurate rate calculation.",
+            "predicted_sql": "SELECT MAX(CAST(`T1`.`Free Meal Count (K-12)` AS REAL) / `T1`.`Enrollment (K-12)`) FROM `frpm` AS `T1` WHERE `T1`.`County Name` = 'Alameda' AND `T1`.`Enrollment (K-12)` > 0",
+            "prompt_tokens": 6404,
+            "completion_tokens": 428,
+            "total_tokens": 7583
+        },
+        "predicted_sql": "SELECT MAX(CAST(`T1`.`Free Meal Count (K-12)` AS REAL) / `T1`.`Enrollment (K-12)`) FROM `frpm` AS `T1` WHERE `T1`.`County Name` = 'Alameda' AND `T1`.`Enrollment (K-12)` > 0",
+        "total_usage": {
+            "prompt_tokens": 20919,
+            "completion_tokens": 1236,
+            "total_tokens": 24457
+        },
+        "results": {
+            "exec_res": 1,
+            "exec_err": "--"
+        }
+    },
+    {
+        "question_id": 0,
+        "db_id": "california_schools",
+        "question": "What is the highest eligible free rate for K-12 students in the schools in Alameda County?",
+        "evidence": "Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`\n'Alameda County Community' is a value of schools.School; 'MethodSchools' is a value of schools.School; 'Preschool' is a value of schools.School; 'Summit Schools' is a value of schools.School; 'Alameda County Opportunity' is a value of schools.School; '4600 Student Lane' is a value of schools.Street; '830 Fresno Street' is a value of schools.Street; '1405 French Street' is a value of schools.Street; '3835 Freeport Boulevard' is a value of schools.Street; '500 East French Street' is a value of schools.Street; 'Schooler' is a value of schools.AdmLName1; 'Vollmer' is a value of schools.AdmLName1; 'Bellmer' is a value of schools.AdmLName1; 'Canyon County' is a value of schools.City; 'Canyon Country' is a value of schools.City; '4600 Student Ln.' is a value of schools.StreetAbr; '3412 State St.' is a value of schools.StreetAbr; '112 S. Wood St.' is a value of schools.StreetAbr; '3835 Freeport Blvd.' is a value of schools.StreetAbr; 'Alameda County Community' is a value of frpm.School Name; 'MethodSchools' is a value of frpm.School Name; 'Alameda County Juvenile Hall/Court' is a value of frpm.School Name; 'Fresno County Court' is a value of frpm.School Name; 'Jane Frederick High' is a value of frpm.School Name;",
+        "SQL": "SELECT `Free Meal Count (K-12)` / `Enrollment (K-12)` FROM frpm WHERE `County Name` = 'Alameda' ORDER BY (CAST(`Free Meal Count (K-12)` AS REAL) / `Enrollment (K-12)`) DESC LIMIT 1",
+        "difficulty": "simple",
+        "keywords": [
+            "highest eligible free rate",
+            "K-12 students",
+            "schools",
+            "Alameda County",
+            "Eligible free rate for K-12",
+            "Free Meal Count (K-12)",
+            "Enrollment (K-12)"
+        ],
+        "similar_entities": {
+            "schools": {
+                "School": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Preschool",
+                    "Summit Schools",
+                    "Alameda County Opportunity"
+                ],
+                "Street": [
+                    "4600 Student Lane",
+                    "830 Fresno Street",
+                    "1405 French Street",
+                    "3835 Freeport Boulevard",
+                    "500 East French Street"
+                ],
+                "AdmLName1": [
+                    "Schooler",
+                    "Vollmer",
+                    "Bellmer"
+                ],
+                "City": [
+                    "Canyon County",
+                    "Canyon Country"
+                ],
+                "StreetAbr": [
+                    "4600 Student Ln.",
+                    "3412 State St.",
+                    "112 S. Wood St.",
+                    "3835 Freeport Blvd."
+                ]
+            },
+            "frpm": {
+                "School Name": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Alameda County Juvenile Hall/Court",
+                    "Fresno County Court",
+                    "Jane Frederick High"
+                ]
+            }
+        },
+        "filtered_columns": {
+            "frpm": [
+                "Academic Year",
+                "County Name",
+                "District Name",
+                "School Name",
+                "School Type",
+                "Low Grade",
+                "High Grade",
+                "Enrollment (K-12)",
+                "Free Meal Count (K-12)",
+                "Percent (%) Eligible Free (K-12)",
+                "FRPM Count (K-12)",
+                "Percent (%) Eligible FRPM (K-12)",
+                "Enrollment (Ages 5-17)",
+                "Free Meal Count (Ages 5-17)",
+                "Percent (%) Eligible Free (Ages 5-17)",
+                "FRPM Count (Ages 5-17)",
+                "Percent (%) Eligible FRPM (Ages 5-17)"
+            ],
+            "satscores": [
+                "sname",
+                "dname",
+                "cname",
+                "enroll12"
+            ],
+            "schools": [
+                "County",
+                "District",
+                "School",
+                "Street",
+                "StreetAbr",
+                "City",
+                "MailCity",
+                "Website",
+                "AdmLName1"
+            ]
+        },
+        "selected_tables": [
+            "frpm"
+        ],
+        "selected_columns": {},
+        "candidate_sql_generation": {
+            "sql_generation_reasoning": "The user is asking for the highest eligible free rate for K-12 students in schools located in 'Alameda County'.\n\n1. **Identify the tables needed**: The 'eligible free rate for K-12' information is in the `frpm` table, specifically using `Free Meal Count (K-12)` and `Enrollment (K-12)`. The county information is in the `schools` table, specifically the `County` column.\n2. **Determine the join condition**: Both `frpm` and `schools` tables have a `CDSCode` column, which can be used to link them.\n3. **Filter for 'Alameda County'**: The `schools.County` column should be filtered for the value 'Alameda'.\n4. **Calculate the eligible free rate**: As per the evidence, the eligible free rate for K-12 is `Free Meal Count (K-12)` divided by `Enrollment (K-12)`. It's important to cast one of the operands to `REAL` to ensure floating-point division and to handle potential division by zero by checking if `Enrollment (K-12)` is not null and not equal to 0.\n5. **Find the maximum rate**: Use the `MAX()` aggregate function to find the highest calculated rate among the filtered schools.",
+            "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+            "exec_err": "",
+            "prompt_tokens": 3678,
+            "completion_tokens": 404,
+            "total_tokens": 4857
+        },
+        "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+        "question_enrichment": {
+            "enrichment_reasoning": "The question asks for the highest 'eligible free rate for K-12 students' for schools located in 'Alameda County'.\n1.  **Identify the calculation for 'eligible free rate for K-12 students'**: Based on the database column descriptions and evidence, the 'eligible free rate' is calculated as `frpm.Free Meal Count (K-12)` divided by `frpm.Enrollment (K-12)`.\n2.  **Identify the table and column for 'Alameda County'**: The `frpm` table contains a `County Name` column. The possible SQL conditions and sample values confirm that 'Alameda' is a valid value for this column. Therefore, the condition `frpm.County Name = 'Alameda'` should be applied.\n3.  **Identify necessary columns for calculation**: The `frpm.Free Meal Count (K-12)` and `frpm.Enrollment (K-12)` columns from the `frpm` table are needed for the rate calculation.\n4.  **Handle potential division by zero**: It's crucial to ensure that `frpm.Enrollment (K-12)` is not zero to avoid errors. A condition `frpm.Enrollment (K-12) != 0` should be included.\n5.  **Determine the aggregation**: The question asks for the 'highest' rate, which implies using the `MAX()` aggregate function on the calculated rate.\n6.  **Table relationships**: All required columns (`Free Meal Count (K-12)`, `Enrollment (K-12)`, `County Name`) are available within the `frpm` table. Therefore, no joins with other tables (like `schools`) are necessary for this specific query.",
+            "enriched_question": "Please find the highest eligible free rate for K-12 students (calculated as `frpm.Free Meal Count (K-12)` / `frpm.Enrollment (K-12)`) among schools located in Alameda County (where `frpm.County Name` = 'Alameda'). Ensure that the `frpm.Enrollment (K-12)` is not zero to avoid division errors. Apply the condition `frpm.County Name = 'Alameda'` and `frpm.Enrollment (K-12) != 0` on the `frpm` table, then calculate the rate and find the maximum value.",
+            "prompt_tokens": 8293,
+            "completion_tokens": 527,
+            "total_tokens": 10386
+        },
+        "sql_refinement": {
+            "sql_generation_reasoning": "The user wants to find the highest eligible free rate for K-12 students in schools located in Alameda County.1. **Identify the calculation for 'eligible free rate for K-12 students'**: Based on the database column descriptions and evidence, the 'eligible free rate' is calculated as `frpm.Free Meal Count (K-12)` divided by `frpm.Enrollment (K-12)`.2. **Identify the table and column for 'Alameda County'**: The question specifies 'Alameda County'. The `schools` table has a `County` column, and the `frpm` table has a `County Name` column. The provided 'Possible SQL Query' uses a join between `frpm` (aliased as T1) and `schools` (aliased as T2) on `CDSCode`, and then filters using `T2.County = 'Alameda'`. This approach is valid.3. **Handle potential division by zero**: The calculation involves division by `Enrollment (K-12)`. To prevent division by zero errors and ensure accurate results, a condition `T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0` is necessary. This is correctly included in the 'Possible SQL Query'.4. **Data type conversion**: For accurate floating-point division, one of the operands should be cast to a `REAL` type. The 'Possible SQL Query' correctly uses `CAST(T1.`Free Meal Count (K-12)` AS REAL)`.5. **Determine the aggregation**: The question asks for the 'highest' rate, which requires the `MAX()` aggregate function applied to the calculated rate. This is also correctly used in the 'Possible SQL Query'.6. **Review the 'Possible SQL Query'**: The provided 'Possible SQL Query' correctly addresses all these points. It joins `frpm` and `schools` tables, filters by county, calculates the rate, handles division by zero, and finds the maximum rate. No improvements or corrections are needed for this query as it is already valid and correctly answers the question.",
+            "predicted_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+            "prompt_tokens": 4575,
+            "completion_tokens": 571,
+            "total_tokens": 6740
+        },
+        "predicted_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0",
+        "total_usage": {
+            "prompt_tokens": 16546,
+            "completion_tokens": 1502,
+            "total_tokens": 21983
+        },
+        "results": {
+            "exec_res": 1,
+            "exec_err": "--"
+        }
+    },
+    {
+        "question_id": 0,
+        "db_id": "california_schools",
+        "question": "What is the highest eligible free rate for K-12 students in the schools in Alameda County?",
+        "evidence": "Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`\n'Alameda County Community' is a value of schools.School; 'MethodSchools' is a value of schools.School; 'Preschool' is a value of schools.School; 'Summit Schools' is a value of schools.School; 'Alameda County Opportunity' is a value of schools.School; 'Kings County Government Center' is a value of schools.MailStreet; '4600 Student Lane' is a value of schools.MailStreet; '830 Fresno Street' is a value of schools.MailStreet; '500 East French Street' is a value of schools.MailStreet; '1405 French Street' is a value of schools.MailStreet; 'Schooler' is a value of schools.AdmLName1; 'Vollmer' is a value of schools.AdmLName1; 'Bellmer' is a value of schools.AdmLName1; 'Rolle' is a value of schools.AdmLName1; 'Canyon County' is a value of schools.MailCity; 'Canyon Country' is a value of schools.MailCity; 'Canyon County' is a value of schools.City; 'Canyon Country' is a value of schools.City; 'Alameda County Community' is a value of frpm.School Name; 'MethodSchools' is a value of frpm.School Name; 'Alameda County Juvenile Hall/Court' is a value of frpm.School Name; 'Fresno County Court' is a value of frpm.School Name; 'Jane Frederick High' is a value of frpm.School Name;",
+        "SQL": "SELECT `Free Meal Count (K-12)` / `Enrollment (K-12)` FROM frpm WHERE `County Name` = 'Alameda' ORDER BY (CAST(`Free Meal Count (K-12)` AS REAL) / `Enrollment (K-12)`) DESC LIMIT 1",
+        "difficulty": "simple",
+        "keywords": [
+            "highest eligible free rate",
+            "K-12 students",
+            "schools",
+            "Alameda County",
+            "Eligible free rate for K-12",
+            "Free Meal Count (K-12)",
+            "Enrollment (K-12)"
+        ],
+        "similar_entities": {
+            "schools": {
+                "School": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Preschool",
+                    "Summit Schools",
+                    "Alameda County Opportunity"
+                ],
+                "MailStreet": [
+                    "Kings County Government Center",
+                    "4600 Student Lane",
+                    "830 Fresno Street",
+                    "500 East French Street",
+                    "1405 French Street"
+                ],
+                "AdmLName1": [
+                    "Schooler",
+                    "Vollmer",
+                    "Bellmer",
+                    "Rolle"
+                ],
+                "MailCity": [
+                    "Canyon County",
+                    "Canyon Country"
+                ],
+                "City": [
+                    "Canyon County",
+                    "Canyon Country"
+                ]
+            },
+            "frpm": {
+                "School Name": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Alameda County Juvenile Hall/Court",
+                    "Fresno County Court",
+                    "Jane Frederick High"
+                ]
+            }
+        },
+        "filtered_columns": {
+            "frpm": [
+                "County Code",
+                "County Name",
+                "District Name",
+                "School Name",
+                "School Type",
+                "Low Grade",
+                "High Grade",
+                "Enrollment (K-12)",
+                "Free Meal Count (K-12)",
+                "Percent (%) Eligible Free (K-12)",
+                "FRPM Count (K-12)",
+                "Percent (%) Eligible FRPM (K-12)",
+                "Enrollment (Ages 5-17)",
+                "Free Meal Count (Ages 5-17)",
+                "Percent (%) Eligible Free (Ages 5-17)",
+                "FRPM Count (Ages 5-17)",
+                "Percent (%) Eligible FRPM (Ages 5-17)"
+            ],
+            "satscores": [
+                "sname",
+                "dname",
+                "cname",
+                "enroll12"
+            ],
+            "schools": [
+                "County",
+                "District",
+                "School",
+                "City",
+                "MailCity",
+                "AdmLName1"
+            ]
+        },
+        "selected_tables": [
+            "frpm"
+        ],
+        "selected_columns": {},
+        "candidate_sql_generation": {
+            "sql_generation_reasoning": "The user wants to find the highest eligible free rate for K-12 students in schools located in 'Alameda County'.\n\n1. **Identify the relevant tables and columns:**\n    - The `frpm` table contains 'Free Meal Count (K-12)' and 'Enrollment (K-12)', which are needed to calculate the eligible free rate.\n    - The `frpm` table also contains 'School Name', which can be used to identify schools in 'Alameda County' based on the evidence provided (e.g., 'Alameda County Community' is a value of `frpm.School Name`).\n\n2. **Define the calculation for 'eligible free rate for K-12':**\n    - According to the evidence, 'Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`'.\n    - To ensure accurate division, 'Free Meal Count (K-12)' should be cast to REAL.\n\n3. **Filter for schools in 'Alameda County':**\n    - Use the `WHERE` clause with `LIKE '%Alameda County%'` on the `frpm.School Name` column.\n\n4. **Handle potential errors (division by zero or NULL values):**\n    - Ensure 'Enrollment (K-12)' is not NULL and not equal to 0 to prevent division by zero errors.\n    - Ensure 'Free Meal Count (K-12)' is not NULL.\n\n5. **Find the maximum rate:**\n    - Use the `MAX()` aggregate function on the calculated rate.",
+            "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 WHERE T1.`School Name` LIKE '%Alameda County%' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0 AND T1.`Free Meal Count (K-12)` IS NOT NULL",
+            "exec_err": "",
+            "prompt_tokens": 3653,
+            "completion_tokens": 478,
+            "total_tokens": 5170
+        },
+        "possible_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 WHERE T1.`School Name` LIKE '%Alameda County%' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0 AND T1.`Free Meal Count (K-12)` IS NOT NULL",
+        "question_enrichment": {
+            "enrichment_reasoning": "The question asks for the highest 'eligible free rate for K-12 students' for schools in 'Alameda County'.\n1.  **Identify the calculation for 'eligible free rate for K-12'**: Based on the database column descriptions and evidence, the 'eligible free rate for K-12' is calculated as `frpm.Free Meal Count (K-12)` divided by `frpm.Enrollment (K-12)`.\n2.  **Identify the table and column for 'Alameda County'**: The `schools` table contains a `County` column, which is the most appropriate column to filter for 'Alameda County'.\n3.  **Identify how to link 'frpm' and 'schools' tables**: Both `frpm` and `schools` tables have a `School Name` column. This column can be used to join the two tables to associate meal data with school location data.\n4.  **Consider necessary conditions**: The 'Possible SQL Conditions' indicate that `Enrollment (K-12)` should not be zero to avoid division by zero errors during the rate calculation.\n5.  **Determine the final aggregation**: The question asks for the 'highest' rate, which implies using the `MAX()` aggregate function on the calculated rate.\n\nTherefore, the steps are:\n    a. Join `frpm` and `schools` tables on `School Name`.\n    b. Filter the results where `schools.County` is 'Alameda'.\n    c. Filter out records where `frpm.Enrollment (K-12)` is 0.\n    d. Calculate the rate: `frpm.Free Meal Count (K-12)` / `frpm.Enrollment (K-12)`.\n    e. Find the maximum of these calculated rates.",
+            "enriched_question": "Please find the highest eligible free rate for K-12 students. The eligible free rate for K-12 students is calculated as the division of `frpm.Free Meal Count (K-12)` by `frpm.Enrollment (K-12)`. This rate should be determined for schools located in 'Alameda' County (schools.County = 'Alameda'). Join the `frpm` table and the `schools` table on their common `School Name` column (`frpm.School Name` = `schools.School Name`). Ensure that `frpm.Enrollment (K-12)` is not equal to 0 to prevent division by zero. Finally, select the maximum value of this calculated rate.",
+            "prompt_tokens": 7201,
+            "completion_tokens": 562,
+            "total_tokens": 8919
+        },
+        "sql_refinement": {
+            "sql_generation_reasoning": "The user wants to find the highest 'eligible free rate for K-12 students' for schools located in 'Alameda County'.\n\n1.  **Identify the calculation for 'eligible free rate for K-12'**: Based on the database column descriptions and evidence, the 'eligible free rate for K-12' is calculated as `frpm.Free Meal Count (K-12)` divided by `frpm.Enrollment (K-12)`. It's important to cast one of the operands to REAL to ensure floating-point division.\n2.  **Identify the table and column for 'Alameda County'**: The `schools` table contains a `County` column, which is the most appropriate column to filter for 'Alameda County'.\n3.  **Identify how to link 'frpm' and 'schools' tables**: Both `frpm` and `schools` tables have a `School Name` column. This column can be used to join the two tables to associate meal data with school location data.\n4.  **Consider necessary conditions**: To prevent division by zero errors, `frpm.Enrollment (K-12)` must not be equal to 0. Also, both `frpm.Enrollment (K-12)` and `frpm.Free Meal Count (K-12)` should not be NULL for the calculation to be valid.\n5.  **Determine the final aggregation**: The question asks for the 'highest' rate, which implies using the `MAX()` aggregate function on the calculated rate.\n\n**Critique of the Possible SQL Query:**\nThe provided possible SQL query `SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 WHERE T1.`School Name` LIKE '%Alameda County%' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0 AND T1.`Free Meal Count (K-12)` IS NOT NULL` has a few issues:\n*   It only queries the `frpm` table (`FROM `frpm` AS T1`). To filter by county, it needs to join with the `schools` table.\n*   It filters by `T1.`School Name` LIKE '%Alameda County%'`. While some school names might contain 'Alameda County', this is not a reliable way to filter by county. The `schools.County` column is the correct and precise way to filter by county.\n\n**Constructing the Final SQL Query:**\n*   Join `frpm` (aliased as `T1`) with `schools` (aliased as `T2`) using `T1.`School Name` = T2.`School Name``.\n*   Filter the results where `T2.County` is exactly 'Alameda'.\n*   Apply the conditions to prevent division by zero and handle NULLs: `T1.`Enrollment (K-12)` IS NOT NULL`, `T1.`Enrollment (K-12)` != 0`, and `T1.`Free Meal Count (K-12)` IS NOT NULL`.\n*   Calculate the rate: `CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)``.\n*   Find the maximum of these calculated rates using `MAX()`.",
+            "predicted_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.`School Name` = T2.`School Name` WHERE T2.`County` = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0 AND T1.`Free Meal Count (K-12)` IS NOT NULL",
+            "prompt_tokens": 3514,
+            "completion_tokens": 881,
+            "total_tokens": 5307
+        },
+        "predicted_sql": "SELECT MAX(CAST(T1.`Free Meal Count (K-12)` AS REAL) / T1.`Enrollment (K-12)`) FROM `frpm` AS T1 INNER JOIN `schools` AS T2 ON T1.`School Name` = T2.`School Name` WHERE T2.`County` = 'Alameda' AND T1.`Enrollment (K-12)` IS NOT NULL AND T1.`Enrollment (K-12)` != 0 AND T1.`Free Meal Count (K-12)` IS NOT NULL",
+        "total_usage": {
+            "prompt_tokens": 14368,
+            "completion_tokens": 1921,
+            "total_tokens": 19396
+        },
+        "results": {
+            "exec_res": 0,
+            "exec_err": "no such column: T2.School Name"
+        }
+    },
+    {
+        "question_id": 0,
+        "db_id": "california_schools",
+        "question": "What is the highest eligible free rate for K-12 students in the schools in Alameda County?",
+        "evidence": "Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`\n'Alameda County Community' is a value of schools.School; 'MethodSchools' is a value of schools.School; 'Preschool' is a value of schools.School; 'Summit Schools' is a value of schools.School; 'Alameda County Opportunity' is a value of schools.School; 'Schooler' is a value of schools.AdmLName1; 'Vollmer' is a value of schools.AdmLName1; 'Bellmer' is a value of schools.AdmLName1; he highest eligible free rate refers to schools.AdmLName1 = Free; '4600 Student Lane' is a value of schools.Street; '830 Fresno Street' is a value of schools.Street; '1405 French Street' is a value of schools.Street; '3835 Freeport Boulevard' is a value of schools.Street; '500 East French Street' is a value of schools.Street; 'Canyon County' is a value of schools.MailCity; 'Canyon Country' is a value of schools.MailCity; 'Canyon County' is a value of schools.City; 'Canyon Country' is a value of schools.City; 'Alameda County Community' is a value of frpm.School Name; 'MethodSchools' is a value of frpm.School Name; 'Alameda County Juvenile Hall/Court' is a value of frpm.School Name; 'Fresno County Court' is a value of frpm.School Name; 'Jane Frederick High' is a value of frpm.School Name;",
+        "SQL": "SELECT `Free Meal Count (K-12)` / `Enrollment (K-12)` FROM frpm WHERE `County Name` = 'Alameda' ORDER BY (CAST(`Free Meal Count (K-12)` AS REAL) / `Enrollment (K-12)`) DESC LIMIT 1",
+        "difficulty": "simple",
+        "keywords": [
+            "highest eligible free rate",
+            "K-12 students",
+            "schools",
+            "Alameda County",
+            "Eligible free rate for K-12",
+            "Free Meal Count (K-12)",
+            "Enrollment (K-12)"
+        ],
+        "similar_entities": {
+            "schools": {
+                "School": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Preschool",
+                    "Summit Schools",
+                    "Alameda County Opportunity"
+                ],
+                "AdmLName1": [
+                    "Schooler",
+                    "Vollmer",
+                    "Bellmer",
+                    "Free"
+                ],
+                "Street": [
+                    "4600 Student Lane",
+                    "830 Fresno Street",
+                    "1405 French Street",
+                    "3835 Freeport Boulevard",
+                    "500 East French Street"
+                ],
+                "MailCity": [
+                    "Canyon County",
+                    "Canyon Country"
+                ],
+                "City": [
+                    "Canyon County",
+                    "Canyon Country"
+                ]
+            },
+            "frpm": {
+                "School Name": [
+                    "Alameda County Community",
+                    "MethodSchools",
+                    "Alameda County Juvenile Hall/Court",
+                    "Fresno County Court",
+                    "Jane Frederick High"
+                ]
+            }
+        },
+        "filtered_columns": {
+            "frpm": [
+                "County Code",
+                "County Name",
+                "District Name",
+                "School Name",
+                "School Type",
+                "NSLP Provision Status",
+                "Low Grade",
+                "High Grade",
+                "Enrollment (K-12)",
+                "Free Meal Count (K-12)",
+                "Percent (%) Eligible Free (K-12)",
+                "FRPM Count (K-12)",
+                "Percent (%) Eligible FRPM (K-12)",
+                "Enrollment (Ages 5-17)",
+                "Free Meal Count (Ages 5-17)",
+                "Percent (%) Eligible Free (Ages 5-17)",
+                "FRPM Count (Ages 5-17)",
+                "Percent (%) Eligible FRPM (Ages 5-17)"
+            ],
+            "satscores": [
+                "dname",
+                "cname",
+                "enroll12"
+            ],
+            "schools": [
+                "County",
+                "District",
+                "School",
+                "Street",
+                "City",
+                "MailCity",
+                "AdmLName1"
+            ]
+        },
+        "selected_tables": [
+            "frpm"
+        ],
+        "selected_columns": {},
+        "candidate_sql_generation": {
+            "sql_generation_reasoning": "The user wants to find the highest eligible free rate for K-12 students in schools located in 'Alameda County'. To achieve this, I need to join the `schools` table (to filter by county) and the `frpm` table (to get the free meal count and enrollment data). The join condition will be on the school name. The eligible free rate is calculated as `Free Meal Count (K-12)` divided by `Enrollment (K-12)`. I will filter the `schools` table for `County` = 'Alameda County'. Then, I will calculate the rate, ensuring to cast the numerator to REAL for accurate division and to handle potential division by zero by checking if `Enrollment (K-12)` is not null and not equal to 0. Finally, I will find the maximum of these calculated rates.",
+            "possible_sql": "SELECT MAX(CAST(T2.`Free Meal Count (K-12)` AS REAL) / T2.`Enrollment (K-12)`) FROM `schools` AS T1 INNER JOIN `frpm` AS T2 ON T1.`School` = T2.`School Name` WHERE T1.`County` = 'Alameda County' AND T2.`Enrollment (K-12)` IS NOT NULL AND T2.`Enrollment (K-12)` != 0",
+            "exec_err": "",
+            "prompt_tokens": 3651,
+            "completion_tokens": 300,
+            "total_tokens": 4469
+        },
+        "possible_sql": "SELECT MAX(CAST(T2.`Free Meal Count (K-12)` AS REAL) / T2.`Enrollment (K-12)`) FROM `schools` AS T1 INNER JOIN `frpm` AS T2 ON T1.`School` = T2.`School Name` WHERE T1.`County` = 'Alameda County' AND T2.`Enrollment (K-12)` IS NOT NULL AND T2.`Enrollment (K-12)` != 0",
+        "question_enrichment": {
+            "enrichment_reasoning": "The user is asking for the highest eligible free rate for K-12 students in schools located in Alameda County. \n1.  **Identify the calculation for 'eligible free rate for K-12 students'**: The evidence explicitly states that 'Eligible free rate for K-12 = `Free Meal Count (K-12)` / `Enrollment (K-12)`. These columns (`Free Meal Count (K-12)` and `Enrollment (K-12)`) are found in the `frpm` table, as indicated by the column descriptions.\n2.  **Identify the filtering condition for 'Alameda County'**: The question specifies 'in the schools in Alameda County'. The `frpm` table contains a `County Name` column. The possible SQL conditions suggest that 'Alameda' is the value used for 'Alameda County' in the `frpm.County Name` column (`frpm.County Name = 'Alameda'`).\n3.  **Identify the aggregation**: The question asks for the 'highest' rate, which implies using the `MAX()` aggregate function on the calculated rate.\n4.  **Handle potential errors**: When performing division, it's crucial to ensure the denominator is not zero. Therefore, a condition `frpm.Enrollment (K-12) != 0` must be applied.\n5.  **Formulate the SQL steps**: The query should select the maximum value of the division of `frpm.Free Meal Count (K-12)` by `frpm.Enrollment (K-12)`, filtered by `frpm.County Name = 'Alameda'` and `frpm.Enrollment (K-12) != 0`.",
+            "enriched_question": "Please find the highest eligible free rate for K-12 students, calculated as `frpm.Free Meal Count (K-12)` divided by `frpm.Enrollment (K-12)`, for schools located in Alameda County (where `frpm.County Name` = 'Alameda').\nSelect the maximum value of the division of `frpm.Free Meal Count (K-12)` by `frpm.Enrollment (K-12)` from the `frpm` table. Apply the condition that `frpm.County Name` = 'Alameda' and ensure that `frpm.Enrollment (K-12)` is not equal to 0 to avoid division by zero.",
+            "prompt_tokens": 9526,
+            "completion_tokens": 535,
+            "total_tokens": 11727
+        },
+        "sql_refinement": {
+            "sql_generation_reasoning": "The user is asking for the highest eligible free rate for K-12 students in schools located in Alameda County. The eligible free rate for K-12 is defined as `Free Meal Count (K-12)` divided by `Enrollment (K-12)`. Both of these columns are found in the `frpm` table. The question also specifies 'Alameda County'.\n\n1.  **Identify the calculation**: The rate is `frpm.'Free Meal Count (K-12)'` / `frpm.'Enrollment (K-12)'`. To ensure accurate division, `CAST` to `REAL` is necessary, and the denominator must not be zero or NULL.\n2.  **Identify the filtering condition**: The schools must be in 'Alameda County'. The `frpm` table has a `County Name` column, and the `schools` table has a `County` column. The possible SQL conditions suggest that the value for 'Alameda County' in these columns is simply 'Alameda' (e.g., `frpm.County Name = 'Alameda'` or `schools.County = 'Alameda'`).\n3.  **Identify the aggregation**: The question asks for the 'highest' rate, which requires the `MAX()` aggregate function.\n4.  **Analyze the possible SQL query**: The provided possible SQL query attempts to join `schools` (as T1) and `frpm` (as T2) on `T1.School = T2.'School Name'`. It then filters by `T1.County = 'Alameda County'`. This condition `T1.County = 'Alameda County'` is inconsistent with the possible conditions which indicate `schools.County = 'Alameda'`. Therefore, this condition needs to be corrected.\n5.  **Correct the SQL query**: The condition `T1.County = 'Alameda County'` should be changed to `T1.County = 'Alameda'` to align with the provided possible conditions and common data representation for county names. The rest of the query structure, including the join, the rate calculation with `CAST`, and the `WHERE` clause for handling division by zero, appears correct.\n6.  **Final SQL construction**: Combine these elements to form the corrected query.",
+            "predicted_sql": "SELECT MAX(CAST(T2.`Free Meal Count (K-12)` AS REAL) / T2.`Enrollment (K-12)`) FROM `schools` AS T1 INNER JOIN `frpm` AS T2 ON T1.`School` = T2.`School Name` WHERE T1.`County` = 'Alameda' AND T2.`Enrollment (K-12)` IS NOT NULL AND T2.`Enrollment (K-12)` != 0",
+            "prompt_tokens": 5819,
+            "completion_tokens": 605,
+            "total_tokens": 8658
+        },
+        "predicted_sql": "SELECT MAX(CAST(T2.`Free Meal Count (K-12)` AS REAL) / T2.`Enrollment (K-12)`) FROM `schools` AS T1 INNER JOIN `frpm` AS T2 ON T1.`School` = T2.`School Name` WHERE T1.`County` = 'Alameda' AND T2.`Enrollment (K-12)` IS NOT NULL AND T2.`Enrollment (K-12)` != 0",
+        "total_usage": {
+            "prompt_tokens": 18996,
+            "completion_tokens": 1440,
+            "total_tokens": 24854
+        },
+        "results": {
+            "exec_res": 1,
+            "exec_err": "--"
+        }
+    }
+]

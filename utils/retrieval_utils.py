@@ -9,6 +9,19 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from rank_bm25 import BM25Okapi
 from typing import List
+import pickle
+from datasketch import MinHash, MinHashLSH
+from vertexai.language_models import TextEmbeddingModel
+from pathlib import Path
+from utils.db_utils import execute_sql
+
+def embed_batch(text_list):
+    model = TextEmbeddingModel.from_pretrained("textembedding-gecko")
+    embeddings = model.get_embeddings(text_list)
+    return [e.values for e in embeddings]
+
+def embed_text(text: str):
+    return embed_batch([text])[0]
 
 
 def nltk_downloads():
@@ -219,3 +232,390 @@ def get_db_column_meanings(database_column_meaning_path: str, db_id: str) -> Lis
             meanings.append(meaning)
     
     return meanings
+
+def load_tables_description(database_description_path: str, use_value_description: bool = True):
+    """Load table and column descriptions from all CSV files in the given directory."""
+    tables_desc = {}
+    desc_path = Path(database_description_path)
+    if not desc_path.exists():
+        logging.warning(f"Description path does not exist: {desc_path}")
+        return tables_desc
+    # Iterate CSV files
+    for csv_file in desc_path.glob("*.csv"):
+        if csv_file.name == "db_description.csv":
+            continue
+        table = csv_file.stem.lower().strip()
+        tables_desc[table] = {}
+        try:
+            df = pd.read_csv(csv_file, index_col=False, encoding='utf-8-sig')
+        except Exception:
+            df = pd.read_csv(csv_file, index_col=False, encoding='cp1252')
+        for _, row in df.iterrows():
+            col_name = str(row['original_column_name']).strip()
+            expanded_name = str(row.get('column_name', '')).strip() if pd.notna(row.get('column_name')) else ""
+            col_desc = str(row.get('column_description', '')).replace('\n', ' ').replace("commonsense evidence:", "").strip() if pd.notna(row.get('column_description')) else ""
+            val_desc = ""
+            if use_value_description and pd.notna(row.get('value_description')):
+                val_desc = str(row['value_description']).replace('\n', ' ').replace("commonsense evidence:", "").strip()
+                if val_desc.lower().startswith("not useful"):
+                    val_desc = val_desc[10:].strip()  # remove "not useful" prefix if present
+            tables_desc[table][col_name.lower()] = {
+                "original_column_name": col_name,
+                "column_name": expanded_name,
+                "column_description": col_desc,
+                "value_description": val_desc
+            }
+    return tables_desc
+
+def make_db_context_vec_db(db_directory_path: str, use_value_description: bool = True):
+    """Creates a semantic vector index of the database schema (column descriptions) for the given database directory."""
+    db_path = Path(db_directory_path)
+    db_id = db_path.name
+    logging.info(f"Creating context vector database for {db_id}")
+    # Load table descriptions
+    tables_desc = load_tables_description(db_path / "database_description", use_value_description)
+    docs_texts = []
+    docs_meta = []
+    # Prepare texts for embedding
+    for table, columns in tables_desc.items():
+        for col_key, col_info in columns.items():
+            metadata = {
+                "table_name": table,
+                "original_column_name": col_info["original_column_name"],
+                "column_name": col_info["column_name"],
+                "column_description": col_info["column_description"],
+                "value_description": col_info["value_description"]
+            }
+            # Column description text
+            if col_info["column_description"]:
+                docs_texts.append(col_info["column_description"])
+                docs_meta.append(metadata)
+            # Value description text (if using)
+            if use_value_description and col_info["value_description"]:
+                docs_texts.append(col_info["value_description"])
+                docs_meta.append(metadata)
+    # Embed texts to vectors
+    vectors = []
+    if len(docs_texts) == 0:
+        logging.warning(f"No descriptions to embed for {db_id}")
+        return
+    batch_size = 50
+    for i in range(0, len(docs_texts), batch_size):
+        batch = docs_texts[i:i+batch_size]
+        try:
+            batch_vectors = embed_batch(batch) 
+        except Exception as e:
+            logging.error(f"Embedding API call failed: {e}")
+            raise
+        # Extract embeddings
+        vectors.extend(batch_vectors)
+    vectors = np.array(vectors, dtype=float)
+    # Normalize vectors for cosine similarity (optional)
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1e-9
+    vectors_normalized = vectors / norms
+    # Save the vector index
+    vec_dir = db_path / "context_vector_db"
+    if vec_dir.exists():
+        # remove old index files
+        import shutil
+        shutil.rmtree(vec_dir)
+    vec_dir.mkdir(parents=True, exist_ok=True)
+    np.save(vec_dir / f"{db_id}_vectors.npy", vectors_normalized)
+    with open(vec_dir / f"{db_id}_metadata.pkl", "wb") as f:
+        pickle.dump(docs_meta, f)
+    logging.info(f"Vector index created with {len(vectors_normalized)} vectors at {vec_dir}")
+
+def query_vector_db(database_description_path: str, query: str, top_k: int = 5):
+    """Query the precomputed vector database for the most relevant schema descriptions."""
+    db_path = Path(database_description_path).parent  # get parent directory of "database_description"
+    db_id = db_path.name
+    vec_dir = db_path / "context_vector_db"
+    vectors_file = vec_dir / f"{db_id}_vectors.npy"
+    meta_file = vec_dir / f"{db_id}_metadata.pkl"
+    if not vectors_file.exists() or not meta_file.exists():
+        # If vectors not precomputed, we can call make_db_context_vec_db on the fly (or warn)
+        logging.warning(f"Vector DB not found for {db_id}. Building now...")
+        make_db_context_vec_db(db_path)
+    # Load vectors and metadata
+    vectors = np.load(vectors_file)
+    with open(meta_file, "rb") as f:
+        docs_meta = pickle.load(f)
+    # Embed the query
+    try:
+        query_vec = np.array(embed_text(query), dtype=float)
+    except Exception as e:
+        logging.error(f"Failed to embed query: {e}")
+        raise
+    # Normalize query vector
+    q_norm = np.linalg.norm(query_vec)
+    if q_norm == 0:
+        q_norm = 1e-9
+    query_vec /= q_norm
+    # Compute cosine similarity scores
+    sims = np.dot(vectors, query_vec)  # assuming vectors are normalized
+    # Get top_k indices
+    top_idx = np.argpartition(sims, -top_k)[-top_k:]
+    # Sort them by similarity
+    top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
+    top_results = {}
+    for idx in top_idx:
+        meta = docs_meta[idx]
+        table = meta["table_name"]
+        col = meta["original_column_name"]
+        # Prepare output entry
+        if table not in top_results:
+            top_results[table] = {}
+        if col not in top_results[table]:
+            top_results[table][col] = {
+                "column_name": meta["column_name"],
+                "column_description": meta["column_description"],
+                "value_description": meta["value_description"],
+                "score": float(sims[idx])
+            }
+    return top_results
+
+def _create_minhash(signature_size: int, string: str, n_gram: int) -> MinHash:
+    m = MinHash(num_perm=signature_size)
+    # lower-case the string for uniformity
+    s = str(string).lower()
+    # if string is shorter than n_gram, just use itself
+    if len(s) < n_gram:
+        m.update(s.encode('utf8'))
+    else:
+        for i in range(len(s) - n_gram + 1):
+            shingle = s[i:i+n_gram]
+            m.update(shingle.encode('utf8'))
+    return m
+
+def make_db_lsh(db_directory_path: str, signature_size: int = 100, n_gram: int = 3, threshold: float = 0.2):
+    """Creates a MinHash LSH index for the values in the given database."""
+    db_path = Path(db_directory_path)
+    db_id = db_path.name
+    logging.info(f"Building LSH index for database {db_id}")
+    # Get unique values from the DB
+    sqlite_file = db_path / f"{db_id}.sqlite"
+    if not sqlite_file.exists():
+        # try to find any sqlite file in the directory
+        candidates = list(db_path.glob("*.sqlite"))
+        if not candidates:
+            logging.error(f"No SQLite database file found in {db_path}")
+            return
+        sqlite_file = candidates[0]
+    unique_vals = _get_unique_values(str(sqlite_file))
+    # Save unique values (for record)
+    prep_dir = db_path / "preprocessed"
+    prep_dir.mkdir(exist_ok=True)
+    with open(prep_dir / f"{db_id}_unique_values.pkl", "wb") as f:
+        pickle.dump(unique_vals, f)
+    # Create LSH
+    lsh = MinHashLSH(threshold=threshold, num_perm=signature_size)
+    minhashes = {}
+    # Insert MinHashes for each value
+    for table, cols in unique_vals.items():
+        for col, values in cols.items():
+            for idx, val in enumerate(values):
+                mh = _create_minhash(signature_size, val, n_gram)
+                key = f"{table}_{col}_{idx}"
+                lsh.insert(key, mh)
+                minhashes[key] = (mh, table, col, val)
+    # Save LSH index and minhashes
+    with open(prep_dir / f"{db_id}_lsh.pkl", "wb") as f:
+        pickle.dump(lsh, f)
+    with open(prep_dir / f"{db_id}_minhashes.pkl", "wb") as f:
+        pickle.dump(minhashes, f)
+    logging.info(f"LSH index created for {db_id}: {len(minhashes)} values indexed.")
+
+def _get_unique_values(db_path: str):
+    """Retrieve unique text values for each text column in the database (excluding large or non-informative columns)."""
+    unique_values = {}
+    try:
+        tables = [t[0] for t in execute_sql(db_path, "SELECT name FROM sqlite_master WHERE type='table';", fetch="all")]
+    except Exception as e:
+        logging.error(f"Failed to fetch tables from {db_path}: {e}")
+        return unique_values
+    # Identify primary keys to exclude
+    primary_keys = []
+    for table in tables:
+        try:
+            cols_info = execute_sql(db_path, f"PRAGMA table_info('{table}')", fetch="all")
+        except Exception as e:
+            logging.error(f"Could not get schema for table {table}: {e}")
+            continue
+        for col in cols_info:
+            col_name = col[1]
+            if col[5] == 1:  # PK flag in PRAGMA output
+                primary_keys.append(col_name.lower())
+    for table in tables:
+        if table == "sqlite_sequence":
+            continue
+        unique_values[table] = {}
+        # Get text-type columns excluding primary keys and certain keywords
+        try:
+            cols_info = execute_sql(db_path, f"PRAGMA table_info('{table}')", fetch="all")
+        except Exception as e:
+            logging.error(f"Schema fetch failed for {table}: {e}")
+            continue
+        text_columns = []
+        for col in cols_info:
+            name, col_type = col[1], col[2]
+            name_lower = name.lower()
+            if name_lower in primary_keys: 
+                continue
+            # consider as text if type contains "CHAR" or "TEXT" (or no type given which might allow text)
+            if "char" in col_type.lower() or "text" in col_type.lower() or col_type == "":
+                text_columns.append(name)
+        for column in text_columns:
+            col_lower = column.lower()
+            # Skip columns that likely contain URLs, IDs, or non-semantic data
+            if any(kw in col_lower for kw in ["_id", " uid", "url", "email", "phone", "address"]) or col_lower.endswith("id"):
+                continue
+            # Check distinct count and total length
+            query = f"""
+                SELECT SUM(LENGTH(val)), COUNT(val) FROM (
+                    SELECT DISTINCT `{column}` as val FROM `{table}` 
+                    WHERE `{column}` IS NOT NULL
+                ) sub;
+            """
+            try:
+                sum_len, count_dist = execute_sql(db_path, query, fetch="one")
+            except Exception:
+                sum_len, count_dist = None, 0
+            if sum_len is None or count_dist == 0:
+                continue
+            avg_len = sum_len / count_dist if count_dist else 0
+            # Apply CHESS conditions for skipping large columns
+            if not (("name" in col_lower and sum_len < 5000000) or (sum_len < 2000000 and avg_len < 25) or count_dist < 100):
+                # skip this column due to size
+                logging.info(f"Skipping column {table}.{column} (distinct={count_dist}, total_len={sum_len})")
+                continue
+            # Fetch distinct values for this column
+            try:
+                values = execute_sql(db_path, f"SELECT DISTINCT `{column}` FROM `{table}` WHERE `{column}` IS NOT NULL", fetch="all")
+                values = [str(v[0]) for v in values]
+            except Exception as e:
+                logging.error(f"Error fetching values for {table}.{column}: {e}")
+                values = []
+            logging.info(f"{table}.{column}: {len(values)} distinct values")
+            unique_values[table][column] = values
+    return unique_values
+
+# def query_db_values(db_directory_path: str, keywords: List[str], top_n: int = 3):
+#     """Find columns with values similar to the given keywords using the precomputed LSH index."""
+#     db_path = Path(db_directory_path)
+#     db_id = db_path.name
+#     prep_dir = db_path / "preprocessed"
+#     lsh_file = prep_dir / f"{db_id}_lsh.pkl"
+#     mh_file = prep_dir / f"{db_id}_minhashes.pkl"
+#     if not lsh_file.exists() or not mh_file.exists():
+#         logging.warning(f"LSH index not found for {db_id}. Building now...")
+#         make_db_lsh(db_path)
+#     # Load LSH and minhashes
+#     with open(lsh_file, "rb") as f:
+#         lsh = pickle.load(f)
+#     with open(mh_file, "rb") as f:
+#         minhashes = pickle.load(f)
+#     similar_entities = {}  # {table: {column: [matching_value, ...]}}
+#     for keyword in keywords:
+#         if not keyword or keyword.strip() == "":
+#             continue
+#         mh = _create_minhash(100, keyword, 3)
+#         results = lsh.query(mh)
+#         # Compute actual Jaccard similarity for each result to rank
+#         sims = []
+#         for res in results:
+#             mh2 = minhashes[res][0]
+#             # Jaccard similarity approximation via MinHash
+#             sim = mh.jaccard(mh2)
+#             sims.append((res, sim))
+#         sims.sort(key=lambda x: x[1], reverse=True)
+#         top_hits = sims[:top_n]
+#         for res, sim in top_hits:
+#             _, table_name, col_name, value = minhashes[res]
+#             table_dict = similar_entities.setdefault(table_name, {})
+#             col_list = table_dict.setdefault(col_name, [])
+#             # record the value (if not already recorded)
+#             if value not in col_list:
+#                 col_list.append(value)
+#     return similar_entities
+
+def query_db_values(db_directory_path: str, keywords: List[str], top_n: int = 10,
+                    max_columns: int = 6, max_values_per_column: int = 5):
+    """
+    Find columns with values similar to the given keywords using the precomputed LSH index.
+    Returns a pruned dict {table: {column: [values...]}}.
+    """
+    db_path = Path(db_directory_path)
+    db_id = db_path.name
+    prep_dir = db_path / "preprocessed"
+    lsh_file = prep_dir / f"{db_id}_lsh.pkl"
+    mh_file = prep_dir / f"{db_id}_minhashes.pkl"
+
+    if not lsh_file.exists() or not mh_file.exists():
+        logging.warning(f"LSH index not found for {db_id}. Building now...")
+        make_db_lsh(db_path)
+
+    with open(lsh_file, "rb") as f:
+        lsh = pickle.load(f)
+    with open(mh_file, "rb") as f:
+        minhashes = pickle.load(f)
+
+    # 1) Collect hits per (table, col, value) with scores
+    column_scores = {}   # (table, col) -> aggregated_score
+    value_hits = {}      # (table, col) -> list of (value, score)
+
+    for keyword in keywords:
+        if not keyword or keyword.strip() == "":
+            continue
+
+        mh = _create_minhash(100, keyword, 3)
+        results = lsh.query(mh)
+
+        sims = []
+        for res in results:
+            mh2 = minhashes[res][0]
+            sim = mh.jaccard(mh2)
+            sims.append((res, sim))
+
+        sims.sort(key=lambda x: x[1], reverse=True)
+        # NOTE: sims is already pruned by LSH threshold, so we can keep
+        # some number of best matches for this keyword
+        for res, sim in sims[:top_n]:
+            _, table_name, col_name, value = minhashes[res]
+            key = (table_name, col_name)
+
+            # aggregate score per column
+            column_scores[key] = column_scores.get(key, 0.0) + float(sim)
+
+            # store value-level hit
+            vlist = value_hits.setdefault(key, [])
+            vlist.append((value, float(sim)))
+
+    if not column_scores:
+        return {}
+
+    # 2) Select top columns overall
+    sorted_cols = sorted(column_scores.items(), key=lambda x: x[1], reverse=True)
+    top_cols = [k for k, _ in sorted_cols[:max_columns]]
+
+    # 3) For each column, keep top values
+    similar_entities = {}
+    for (table_name, col_name) in top_cols:
+        vals_scores = value_hits.get((table_name, col_name), [])
+        vals_scores.sort(key=lambda x: x[1], reverse=True)
+        top_vals = []
+        seen = set()
+        for v, _ in vals_scores:
+            if v in seen:
+                continue
+            top_vals.append(v)
+            seen.add(v)
+            if len(top_vals) >= max_values_per_column:
+                break
+
+        tdict = similar_entities.setdefault(table_name, {})
+        tdict[col_name] = top_vals
+
+    return similar_entities
+
+

@@ -5,6 +5,8 @@ from utils.db_utils import *
 from utils.openai_utils import create_response
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from utils.retrieval_utils import query_vector_db, query_db_values
+import sqlite3
 
 class Pipeline():
     def __init__(self, args):
@@ -459,54 +461,82 @@ class Pipeline():
         """
         db_id = t2s_object["db_id"]
         q_id = t2s_object["question_id"]
-        evidence = t2s_object["evidence"]
         question = t2s_object["question"]
-        
-        bird_sql_path = os.getenv('BIRD_DB_PATH')
-        db_path = bird_sql_path + f"/{self.mode}/{self.mode}_databases/{db_id}/{db_id}.sqlite"
-        db_description_path = bird_sql_path + f"/{self.mode}/{self.mode}_databases/{db_id}/database_description"
-        db_descriptions = question_relevant_descriptions_prep(database_description_path=db_description_path, question=question, relevant_description_number=self.rdn)
-        database_column_meaning_path = bird_sql_path + f"/{self.mode}/column_meaning.json"
-        db_column_meanings = db_column_meaning_prep(database_column_meaning_path, db_id)
-        db_descriptions = db_descriptions + "\n\n" + db_column_meanings
-
-        # extracting original schema dictionary 
-        original_schema_dict = get_schema_tables_and_columns_dict(db_path=db_path)
-
-
-        ### STAGE 1: FILTERING THE DATABASE SCHEMA
-        # -- original question is used.
-        # -- Original Schema is used.
-        schema_filtering_response_obj = self.schema_filtering_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        # print("schema_filtering_response_obj: \n", schema_filtering_response_obj)
+        evidence = t2s_object.get("evidence", "")
+        # Prepare database paths
+        bird_sql_path = os.getenv('BIRD_DB_PATH', self.dataset_path)
+        db_dir = f"{bird_sql_path}/{self.mode}/{self.mode}_databases/{db_id}"
+        db_path = f"{db_dir}/{db_id}.sqlite"
+        db_description_path = f"{db_dir}/database_description"
+        # Stage 0: Information Retrieval
+        keywords_result = self.extract_keywords_module(question=question, hint=evidence)
         try:
-            t2s_object["schema_filtering"] = {
-                "filtering_reasoning": schema_filtering_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
-                "filtered_schema_dict": schema_filtering_response_obj.choices[0].message.content['tables_and_columns'],
-                "prompt_tokens": schema_filtering_response_obj.usage.prompt_tokens,
-                "completion_tokens": schema_filtering_response_obj.usage.completion_tokens,
-                "total_tokens": schema_filtering_response_obj.usage.total_tokens,
-            }
+            kw_content = keywords_result.choices[0].message.content or {}
+            keywords = kw_content.get("keywords", [])
+        except Exception:
+            keywords = []
+        t2s_object["keywords"] = keywords
+        similar_entities = {}
+        try:
+            similar_entities = query_db_values(
+                db_directory_path=db_dir,
+                keywords=keywords
+            )
         except Exception as e:
-            logging.error(f"Error in reaching content from schema filtering response for question_id {q_id}: {e}")
-            t2s_object["schema_filtering"] = f"{e}"
-            return t2s_object
+            logging.error(f"Value retrieval error: {e}")
 
-        ### STAGE 1.1: FILTERED SCHEMA CORRECTION
-        filtered_schema_dict = schema_filtering_response_obj.choices[0].message.content['tables_and_columns']
-        filtered_schema_dict, filtered_schema_problems = filtered_schema_correction(db_path=db_path, filtered_schema_dict=filtered_schema_dict) 
-        t2s_object["schema_filtering_correction"] = {
-            "filtered_schema_problems": filtered_schema_problems,
-            "final_filtered_schema_dict": filtered_schema_dict
-        }
+        t2s_object["similar_entities"] = similar_entities
 
-        schema_statement = generate_schema_from_schema_dict(db_path=db_path, schema_dict=filtered_schema_dict)
-        t2s_object["create_table_statement"] = schema_statement
+        # Construct HINT from retrieved values (flatten the dict structure)
+        hint_lines = []
+        for table_name, col_dict in similar_entities.items():
+            for col_name, values in col_dict.items():
+                for value in values:
+                    if value is None:
+                        continue
+                    val_str = str(value)
+                    if val_str.lower() in question.lower():
+                        idx = question.lower().find(val_str.lower())
+                        phrase = question[max(0, idx - 20): idx + len(val_str) + 5]
+                        hint_lines.append(
+                            f"{phrase.strip()} refers to {table_name}.{col_name} = {val_str};"
+                        )
+                    else:
+                        hint_lines.append(
+                            f"'{val_str}' is a value of {table_name}.{col_name};"
+                        )
+        hint_text = " ".join(hint_lines)
+        combined_hint = (evidence.strip() + "\n" + hint_text) if evidence and hint_text else (evidence or hint_text or "No hint")
+        t2s_object["evidence"] = combined_hint
+        evidence = combined_hint
+        # Combine relevant descriptions and column meanings for generation stage
+        db_descriptions = relevant_descriptions_prep(
+            database_description_path=db_description_path,
+            question=question,
+            relevant_description_number=self.rdn
+        )
+        try:
+            col_meaning_file = f"{bird_sql_path}/{self.mode}/column_meaning.json"
+            with open(col_meaning_file, 'r') as f:
+                col_meanings_all = json.load(f)
+            if db_id in col_meanings_all:
+                meanings_text = "\n".join([f"{col}: {meaning}" for col, meaning in col_meanings_all[db_id].items()])
+                db_descriptions = (db_descriptions + "\n\n" + meanings_text) if db_descriptions else meanings_text
+        except Exception:
+            pass
+        # Stage 1: Schema Filtering (IR + SS)
+        filtered_schema = self.filter_columns_module(question=question, hint=combined_hint, db_path=db_path)
+        t2s_object["filtered_columns"] = filtered_schema
+        selected_tables = self.select_tables_module(question=question, hint=combined_hint, filtered_schema=filtered_schema)
+        t2s_object["selected_tables"] = selected_tables
+        selected_schema = self.select_columns_module(question=question, hint=combined_hint,
+                                                     selected_tables=selected_tables, filtered_schema=filtered_schema)
+        t2s_object["selected_columns"] = selected_schema
 
         ### STAGE 2: Candidate SQL GENERATION
         # -- Original question is used
         # -- Filtered Schema is used 
-        sql_generation_response_obj =  self.candidate_sql_generation_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, filtered_schema_dict=filtered_schema_dict, db_descriptions=db_descriptions)
+        sql_generation_response_obj =  self.candidate_sql_generation_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, filtered_schema_dict=selected_schema, db_descriptions=db_descriptions)
         try:
             possible_sql = sql_generation_response_obj.choices[0].message.content['SQL']
             t2s_object["candidate_sql_generation"] = {
@@ -545,7 +575,7 @@ class Pipeline():
         # -- Original question is used
         # -- Original schema is used
         # -- Possible conditions are used
-        q_enrich_response_obj = self.question_enrichment_module(db_path=db_path, q_id=q_id, db_id=db_id, question=question, evidence=evidence, possible_conditions=possible_conditions, schema_dict=filtered_schema_dict, db_descriptions=db_descriptions)
+        q_enrich_response_obj = self.question_enrichment_module(db_path=db_path, q_id=q_id, db_id=db_id, question=question, evidence=evidence, possible_conditions=possible_conditions, schema_dict=selected_schema, db_descriptions=db_descriptions)
         try:
             enriched_question = q_enrich_response_obj.choices[0].message.content['enriched_question']
             enrichment_reasoning = q_enrich_response_obj.choices[0].message.content['chain_of_thought_reasoning']
@@ -576,7 +606,7 @@ class Pipeline():
         # -- Possible Conditions is extracted from possible SQL and then used for augmentation
         # -- Execution Error for Possible SQL is used
         exec_err = t2s_object['candidate_sql_generation']["exec_err"]
-        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=filtered_schema_dict, db_descriptions=db_descriptions)
+        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=selected_schema, db_descriptions=db_descriptions)
         try:
             predicted_sql = sql_generation_response_obj.choices[0].message.content['SQL']
             t2s_object["sql_refinement"] = {
@@ -1016,6 +1046,293 @@ class Pipeline():
         except:
             return resp
         return resp
+
+    def construct_extract_keywords_prompt(self, *, question: str, hint: str) -> str:
+        """
+        Build the Extract Keywords prompt. Template is loaded here (pipeline level),
+        same style as other stages.
+        """
+        kw_template_path = os.path.join(os.getcwd(), "prompt_templates/extract_keywords_prompt_template.txt")
+        kw_template = extract_extract_keyword_prompt_template(kw_template_path)
+        prompt = fill_extract_keywords_prompt_template(
+            template=kw_template,
+            question=question,
+            hint=hint,
+        )
+        return prompt
+
+    def extract_keywords_module(self, *, question: str, hint: str):
+        """
+        Runs the Extract Keywords stage.
+        Returns a dict with parsed keywords and usage, ready to be embedded into t2s_object.
+        """
+        prompt = self.construct_extract_keywords_prompt(question=question, hint=hint)
+        resp = create_response(
+            stage="extract_keywords",
+            prompt=prompt,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            n=self.n,
+            provider=self.provider
+        )
+        try:
+            resp = self.convert_message_content_to_dict(resp)
+        except:
+            return resp
+        return resp
+
+
+    def filter_columns_module(self, *, question: str, hint: str, db_path: str) -> Dict[str, List[str]]:
+        """
+        Runs the Filter Columns stage.
+        Returns a dict with tables as keys and lists of relevant column names as values.
+        """
+        # Retrieve database schema information and sample values
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [t[0] for t in cursor.fetchall()]
+        col_type_map = {}
+        fk_map = {}
+        example_map = {}
+        for table_name in tables:
+            cursor.execute(f"PRAGMA table_info(`{table_name}`);")
+            cols_info = cursor.fetchall()
+            col_type_map[table_name] = {}
+            example_map[table_name] = {}
+            col_names = [col[1] for col in cols_info]
+            # Fetch one sample row from table for example values
+            row = None
+            try:
+                cursor.execute(f"SELECT * FROM `{table_name}` LIMIT 1;")
+                row = cursor.fetchone()
+            except Exception as e:
+                logging.error(f"Error fetching sample row from table '{table_name}': {e}")
+            for col in cols_info:
+                col_name = col[1]
+                col_type = col[2] or "UNKNOWN"
+                col_type_map[table_name][col_name] = col_type
+                example_val = None
+                if row:
+                    cid = col[0]
+                    if cid < len(row):
+                        example_val = row[cid]
+                example_map[table_name][col_name] = example_val
+            cursor.execute(f"PRAGMA foreign_key_list(`{table_name}`);")
+            fks = cursor.fetchall()
+            fk_map[table_name] = []
+            for fk in fks:
+                # PRAGMA returns (id, seq, table, to, from, on_update, on_delete, match)
+                ref_table = fk[2]
+                ref_col = fk[3]
+                from_col = fk[4]
+                fk_map[table_name].append((from_col, ref_table, ref_col))
+        conn.close()
+        # Load column descriptions (if available) from JSON
+        description_map = {}
+        try:
+            bird_sql_path = os.getenv('BIRD_DB_PATH', self.dataset_path)
+            db_dir = os.path.dirname(db_path)
+            col_meaning_path = os.path.join(bird_sql_path, self.mode, "column_meaning.json")
+            with open(col_meaning_path, 'r') as f:
+                all_meanings = json.load(f)
+            db_id = os.path.basename(db_dir)
+            if db_id in all_meanings:
+                description_map = all_meanings[db_id]
+        except Exception as e:
+            logging.error(f"Column meaning file not found or error loading: {e}")
+            description_map = {}
+        # Filter columns using LLM
+        filtered_schema = {table: [] for table in tables}
+        template_path = os.path.join(os.getcwd(), "prompt_templates/filter_columns_prompt_template.txt")
+        with open(template_path, 'r') as f:
+            template_text = f.read()
+        for table in tables:
+            for column in col_type_map[table]:
+                col_type = col_type_map[table][column]
+                descr = description_map.get(column, "")
+                if not descr:
+                    descr = "No description available"
+                example_val = example_map[table].get(column)
+                example_str = f"`{example_val}`" if example_val is not None else "`N/A`"
+                column_profile = (f"Table name: `{table}`\n"
+                                  f"Original column name: `{column}`\n"
+                                  f"Data type: {col_type}\n"
+                                  f"Description: {descr}\n"
+                                  f"Example of values in the column: {example_str}")
+                prompt = template_text.format(QUESTION=question, HINT=(hint or "No hint"), COLUMN_PROFILE=column_profile)
+                try:
+                    response_object = create_response(stage="filter_columns", prompt=prompt, model=self.model,
+                                                      max_tokens=self.max_tokens, temperature=self.temperature,
+                                                      top_p=self.top_p, n=1, provider=self.provider)
+                except Exception as e:
+                    logging.error(f"LLM call failed for column filtering on {table}.{column}: {e}")
+                    continue
+                raw = response_object.choices[0].message.content
+                try:
+                    if isinstance(raw, str):
+                        content = json.loads(raw)
+                    elif isinstance(raw, dict):
+                        content = raw
+                    else:
+                        raise TypeError(f"Unexpected content type: {type(raw)}")
+                except Exception as e:
+                    logging.error(
+                        f"Invalid JSON in filter_columns_module for {table}.{column}: {e}"
+                    )
+                    continue
+
+                val = str(content.get("is_column_information_relevant", "")).lower()
+                if val.startswith("y"):
+                    filtered_schema[table].append(column)
+        # Add bridging tables that connect at least two relevant tables
+        relevant_tables = [t for t, cols in filtered_schema.items() if cols]
+        for table in tables:
+            if table not in relevant_tables:
+                ref_tables = {fk[1] for fk in fk_map.get(table, []) if fk[1] in relevant_tables}
+                if len(ref_tables) >= 2:
+                    filtered_schema[table] = [fk[0] for fk in fk_map[table]]
+                    relevant_tables.append(table)
+        # Store schema info for later stages
+        self.col_type_map = col_type_map
+        self.fk_map = fk_map
+        return filtered_schema
+
+
+    def select_tables_module(self, *, question: str, hint: str, filtered_schema: Dict[str, List[str]]) -> List[str]:
+        """
+        Runs the Select Tables stage.
+        Returns a list of table names needed to answer the question.
+        """
+        schema_lines = []
+        for table, cols in filtered_schema.items():
+            if cols:
+                schema_lines.append(f"Table: {table}")
+                for col in cols:
+                    col_type = self.col_type_map.get(table, {}).get(col, "UNKNOWN")
+                    extra = ""
+                    fk_info = [fk for fk in self.fk_map.get(table, []) if fk[0] == col]
+                    if fk_info:
+                        ref_table, ref_col = fk_info[0][1], fk_info[0][2]
+                        extra = f"(FK -> {ref_table}.{ref_col})"
+                    line = f"- {col} ({col_type})"
+                    if extra:
+                        line += " " + extra
+                    if hasattr(self, 'similar_examples_map'):
+                        val = self.similar_examples_map.get((table, col))
+                        if val is not None:
+                            line += f" -- examples: `{val}`"
+                    schema_lines.append(line)
+        schema_overview = "\n".join(schema_lines)
+        template_path = os.path.join(os.getcwd(), "prompt_templates/select_tables_prompt_template.txt")
+        with open(template_path, 'r') as f:
+            template_text = f.read()
+        prompt = template_text.format(DATABASE_SCHEMA=schema_overview, QUESTION=question, HINT=(hint or "No hint"))
+        try:
+            response_object = create_response(stage="select_tables", prompt=prompt, model=self.model,
+                                              max_tokens=self.max_tokens, temperature=self.temperature,
+                                              top_p=self.top_p, n=1, provider=self.provider)
+        except Exception as e:
+            logging.error(f"LLM call failed for select_tables_module: {e}")
+            return []
+        selected_tables = []
+        raw = response_object.choices[0].message.content
+        try:
+            if isinstance(raw, str):
+                content = json.loads(raw)
+            elif isinstance(raw, dict):
+                content = raw
+            else:
+                raise TypeError(f"Unexpected content type: {type(raw)}")
+
+            if isinstance(content, dict) and "table_names" in content:
+                selected_tables = content["table_names"]
+        except Exception as e:
+            logging.error(f"Invalid JSON in select_tables_module: {e}")
+
+        return selected_tables
+
+    def select_columns_module(self, *, question: str, hint: str, selected_tables: List[str], filtered_schema: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        """
+        Runs the Select Columns stage.
+        Returns a dict of table names to lists of column names needed for the SQL query.
+        """
+        tentative_schema = {t: list(filtered_schema.get(t, [])) for t in selected_tables}
+        if not tentative_schema:
+            return {}
+        for table in selected_tables:
+            for fk in self.fk_map.get(table, []):
+                from_col, ref_table, ref_col = fk
+                if ref_table in selected_tables:
+                    if from_col not in tentative_schema[table]:
+                        tentative_schema[table].append(from_col)
+                    if ref_col not in tentative_schema.get(ref_table, []):
+                        tentative_schema.setdefault(ref_table, []).append(ref_col)
+        schema_lines = []
+        for table, cols in tentative_schema.items():
+            if cols:
+                schema_lines.append(f"Table: {table}")
+                for col in cols:
+                    col_type = self.col_type_map.get(table, {}).get(col, "UNKNOWN")
+                    extra = ""
+                    fk_info = [fk for fk in self.fk_map.get(table, []) if fk[0] == col]
+                    if fk_info:
+                        ref_table, ref_col = fk_info[0][1], fk_info[0][2]
+                        extra = f"(FK -> {ref_table}.{ref_col})"
+                    line = f"- {col} ({col_type})"
+                    if extra:
+                        line += " " + extra
+                    if hasattr(self, 'similar_examples_map'):
+                        val = self.similar_examples_map.get((table, col))
+                        if val is not None:
+                            line += f" -- examples: `{val}`"
+                    schema_lines.append(line)
+        schema_overview = "\n".join(schema_lines)
+        template_path = os.path.join(os.getcwd(), "prompt_templates/select_columns_prompt_template.txt")
+        with open(template_path, 'r') as f:
+            template_text = f.read()
+        prompt = template_text.format(DATABASE_SCHEMA=schema_overview, QUESTION=question, HINT=(hint or "No hint"))
+        try:
+            response_object = create_response(stage="select_columns", prompt=prompt, model=self.model,
+                                              max_tokens=self.max_tokens, temperature=self.temperature,
+                                              top_p=self.top_p, n=(self.n if hasattr(self, 'n') else 1),
+                                              provider=self.provider)
+        except Exception as e:
+            logging.error(f"LLM call failed for select_columns_module: {e}")
+            return {}
+        final_selected_columns = {}
+        raw = response_object.choices[0].message.content
+        try:
+            if isinstance(raw, str):
+                content = json.loads(raw)
+            elif isinstance(raw, dict):
+                content = raw
+            else:
+                raise TypeError(f"Unexpected content type: {type(raw)}")
+        except Exception as e:
+            logging.error(f"Invalid JSON in select_columns_module: {e}")
+            return {}
+
+        if isinstance(content, dict):
+            # unwrap if model nested under 'selected_columns'
+            if "selected_columns" in content and isinstance(content["selected_columns"], dict):
+                inner = content["selected_columns"]
+            else:
+                inner = content
+
+            inner.pop("chain_of_thought_reasoning", None)
+            for table, cols in inner.items():
+                if table == "chain_of_thought_reasoning":
+                    continue
+                final_selected_columns[table] = cols
+        for table in list(final_selected_columns.keys()):
+            if table not in selected_tables or not final_selected_columns[table]:
+                final_selected_columns.pop(table, None)
+        return final_selected_columns
+
+
 
 
 

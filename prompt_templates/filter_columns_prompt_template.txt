@@ -1,0 +1,108 @@
+You are a detail-oriented data scientist tasked with evaluating the relevance of database column information for answering specific SQL query question based on provided hint.
+
+Your goal is to assess whether the given column details are pertinent to constructing an SQL query to address the question informed by the hint. Label the column information as "relevant" if it aids in query formulation, or "irrelevant" if it does not.
+
+Procedure:
+1. Carefully examine the provided column details.
+2. Understand the question about the database and its associated hint.
+3. Decide if the column details are necessary for the SQL query based on your analysis.
+
+Here are some examples of how to determine if the column information is relevant or irrelevant to the question and the hint:
+
+Example 1:
+Column information:
+Table name: `movies`
+Original column name: `movie_title`
+Data type: TEXT
+Description: Name of the movie
+Example of values in the column: `La Antena`
+
+
+Question:
+Name movie titles released in year 1945. Sort the listing by the descending order of movie popularity.
+
+HINT:
+released in the year 1945 refers to movie_release_year = 1945;
+
+```json
+{{
+  "chain_of_thought_reasoning": "The question specifically asks for movie titles from a particular year and to sort them by popularity. The column movie_title directly provides the names of movies, which is exactly what is required to list the movie titles as requested in the question.",
+  "is_column_information_relevant": "Yes"
+}}
+
+Example 2:
+Column information:
+Table name: `movies`
+Original column name: `movie_release_year`
+Data type: INTEGER
+Description: Release year of the movie
+Example of values in the column: `2007`
+
+
+Question:
+List all movie title rated in April 2020 from user who was a trialist.
+
+HINT:
+movie title rated in April 2020 refers to rating_timestamp_utc LIKE '%2020-04-%'; user is a trial list refers to user_trialist = 1;
+
+```json
+{{
+  "chain_of_thought_reasoning": "The question and hint focus on movies rated in a specific month and year and by a specific type of user (trialist), neither of which relates to the movie_release_year column. This column only provides the year movies were released, which is not what is being queried.",
+  "is_column_information_relevant": "No"
+}}
+```
+
+Example 3:
+Column information:
+Table name: `ratings_users`
+Original column name: `user_has_payment_method`
+Data type: INTEGER
+Description: whether the user was a paying subscriber when he rated the movie
+Value description: 1 = the user was a paying subscriber when he rated the movie  0 = the user was not a paying subscriber when he rated
+Example of values in the column: `0`
+
+
+Question:
+How many users, who were a paying subscriber when they rated the movie, gave the movie that was released in 1924 and directed by Erich von Stroheim a rating score of 5?
+
+HINT:
+Directed by Buster Keaton refers to director_name; released in 1924 refers to movie_release_year = 1924; paying subscriber refers to user_has_payment_method = 1; rating score of 5 refers to rating_score = 5;
+
+```json
+{{
+  "chain_of_thought_reasoning": "The question asks about users who were paying subscribers and rated a specific movie from 1924 directed by a specific director. The user_has_payment_method column indicates whether a user was a paying subscriber at the time of rating, which is directly relevant to the question and the hint focusing on subscribers.",
+  "is_column_information_relevant": "Yes"
+}}
+```
+
+Now, its your turn to determine whether the provided column information can help formulate a SQL query to answer the given question, based on the provided hint.
+
+The following guidelines are VERY IMPORTANT to follow. Make sure to check each of them carefully before making your decision:
+1. You're given only one column's information, which alone isn't enough to answer the full query. Concentrate solely on this provided data and assess its relevance to the question and hint without considering any missing information.
+2. Read the column information carefully and understand the description of it, then see if the question or the hint is asking or referring to the same information. If yes then the column information is relevant, otherwise it is irrelevant.
+3. Look beyond mere keywords. Assess whether there is a meaningful, semantic connection between the column information and the needs of the question or hint. Mere word matches do not necessarily imply relevance.
+4. If the question refers to applying a logic on a data such as average, sum, max, min, or any other operation, and the column information is a part of that logic, then the column information is relevant.
+5. Pay attention to the provided `Example of values in the column`. If you see a shared keyword between the example and the question or hint, then the column information is relevant. (VERY IMPORTANT)
+6. If you see the column name appeared in the hint, then it is definitely relevant. (VERY IMPORTANT)
+7. Note that it does not matter if the question is asking for other information not contained in the column, as long as this column's information is useful for crafting a SQL query answering the question, you should consider this column as relevant.
+
+Column information:
+{COLUMN_PROFILE}
+
+Question:
+{QUESTION}
+
+HINT:
+{HINT}
+
+
+Take a deep breath and provide your answer in the following json format:
+
+```json
+{{
+  "chain_of_thought_reasoning": "One line explanation of why or why not the column information is relevant to the question and the hint.",
+  "is_column_information_relevant": "Yes" or "No"
+}}
+```
+
+Only output a json as your response.

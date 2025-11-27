@@ -3,7 +3,7 @@
 # Set default values for the arguments
 mode="dev"
 model="gemini-2.5-flash"  # For GPT-4o use "gpt-4o-2024-08-06". For GPT-4o mini use "gpt-4o-mini-2024-07-18". For gemini use "gemini-2.5-flash"
-pipeline_order="CSG-QE-SR" # First set CSG-QE-SR and then set CSG-SR
+pipeline_order="SF-CSG-QE-SR" # First set CSG-QE-SR and then set CSG-SR
 
 # DO NOT CHANGE THE F0LLOWING ARGUMENTS
 temperature=0.0
@@ -23,7 +23,7 @@ relevant_description_number=20
 seed=42
 num_enriched_questions=1
 provider=gemini
-iterative_enricher=True
+iterative_enricher=False
 
 # Parse command line arguments to override default values
 while [ "$#" -gt 0 ]; do

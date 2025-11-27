@@ -94,6 +94,69 @@ ITERATIVE_ENRICH_SCHEMA = {
     "required": ["enrichment_reasoning_v2", "question_enriched_v2"],
 }
 
+EXTRACT_KEYWORDS_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "keywords": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "Ordered list of unique keywords/keyphrases/entities extracted from the question and hint."
+        }
+    },
+    "required": ["keywords"],
+}
+
+
+FILTER_COLUMNS_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "is_column_information_relevant": {
+            "type": "STRING",
+            "description": "Answer 'yes' if this column is relevant to answering the question, otherwise 'no'."
+        },
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "Optional explanation of why the column is or is not relevant."
+        }
+    },
+    "required": ["is_column_information_relevant"]
+}
+
+SELECT_TABLES_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "table_names": {
+            "type": "ARRAY",
+            "description": "List of table names needed to answer the question.",
+            "items": {
+                "type": "STRING"
+            }
+        },
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "Optional explanation for why these tables were selected."
+        }
+    },
+    "required": ["table_names"]
+}
+
+SELECT_COLUMNS_SCHEMA = {
+    "type": "OBJECT",
+    "description": "Top-level object for column selection results.",
+    "properties": {
+        "selected_columns": {
+            "type": "OBJECT",
+            "description": "Mapping from table name to list of selected column names."
+            # No 'properties', no 'additionalProperties' – keep it loose.
+        },
+        "chain_of_thought_reasoning": {
+            "type": "STRING",
+            "description": "Optional explanation for why these columns were selected."
+        }
+    },
+    "required": ["selected_columns"]
+}
+
 def _wrap_chat_like(model: str, content: Any, usage: Any):
     um = usage or SimpleNamespace(prompt_token_count=0, candidates_token_count=0, total_token_count=0)
     return SimpleNamespace(
@@ -205,6 +268,52 @@ def create_response(
     elif stage == "iterative_enricher":
         system_content = "You are an excellent data scientist who takes an already enriched question (v1) and improves it one step further to produce v2. Validate every referenced table, column, and value against the schema and samples. Fix mismatches, resolve ambiguity, and specify joins, keys, filters, and aggregates only when supported. Use exact schema capitalization. Do not invent schema items. If v1 is already optimal, return v2 **exactly equal to v1** with **no changes whatsoever**. Copy v1 **verbatim**: same characters, casing, punctuation, and whitespace. Then explain briefly why no change was needed."
         required_schema = ITERATIVE_ENRICH_SCHEMA
+    elif stage == "extract_keywords":
+        system_content = (
+            "You are an expert data analyst. Analyze the given natural-language question and the hint. "
+            "Extract the most relevant keywords, keyphrases, and named entities that capture the core concepts. "
+            "Preserve original phrasing/casing from the inputs. "
+            "Return JSON with a single field 'keywords': an ordered list of unique strings. "
+            "Do not include explanations or any extra fields."
+        )
+        required_schema = EXTRACT_KEYWORDS_SCHEMA
+    elif stage == "filter_columns":
+        system_content = (
+            "You are an expert database assistant. You are given:\n"
+            "- A natural language question\n"
+            "- A hint describing potentially relevant values\n"
+            "- A detailed profile for a single column (table name, column name, type, description, example values)\n\n"
+            "Decide if this column is relevant for answering the question. "
+            "Respond with JSON containing only the field 'is_column_information_relevant' "
+            "with value 'yes' or 'no' (case insensitive), "
+            "and optionally 'chain_of_thought_reasoning' explaining your decision."
+        )
+        required_schema = FILTER_COLUMNS_SCHEMA
+
+    elif stage == "select_tables":
+        system_content = (
+            "You are an expert database assistant. You are given:\n"
+            "- A natural language question\n"
+            "- A hint\n"
+            "- A list of tables and their relevant columns\n\n"
+            "Select the tables that are actually needed to answer the question. "
+            "Return JSON with 'table_names': an array of table names, "
+            "and optionally 'chain_of_thought_reasoning' explaining your choices."
+        )
+        required_schema = SELECT_TABLES_SCHEMA
+
+    elif stage == "select_columns":
+        system_content = (
+            "You are an expert database assistant. You are given:\n"
+            "- A natural language question\n"
+            "- A hint\n"
+            "- A list of candidate tables and columns (including foreign keys)\n\n"
+            "Select the minimal set of columns needed to write the SQL query that answers the question. "
+            "Group them by table name. Return JSON with 'selected_columns' "
+            "mapping each table name to an array of column names, and optionally "
+            "'chain_of_thought_reasoning' explaining your choices."
+        )
+        required_schema = SELECT_COLUMNS_SCHEMA
     else:
         raise ValueError("Wrong value for stage. It can only take following values: question_enrichment, candidate_sql_generation, sql_refinement, schema_filtering or qe_combination.")
 
@@ -318,7 +427,62 @@ def create_response(
             else:
                 payload["tables_and_columns"] = {}
             payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
-            
+        elif stage == "extract_keywords":
+            kws = payload.get("keywords", [])
+            if not isinstance(kws, list):
+                kws = []
+            # normalize: strings only, dedupe while preserving order
+            seen = set()
+            clean = []
+            for k in kws:
+                if isinstance(k, str):
+                    k = k.strip()
+                    if k and k not in seen:
+                        seen.add(k)
+                        clean.append(k)
+            payload["keywords"] = clean
+        elif stage == "filter_columns":
+            # normalize yes/no output
+            val = payload.get("is_column_information_relevant", "")
+            if isinstance(val, str):
+                val = val.strip().lower()
+                if val not in ("yes", "no"):
+                    val = "no"
+            else:
+                val = "no"
+
+            payload["is_column_information_relevant"] = val
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
+        elif stage == "select_tables":
+            tables = payload.get("table_names", [])
+            if not isinstance(tables, list):
+                tables = []
+            clean_tables = []
+            for t in tables:
+                if isinstance(t, str) and t.strip():
+                    clean_tables.append(t.strip())
+
+            payload["table_names"] = clean_tables
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
+        elif stage == "select_columns":
+            selected = payload.get("selected_columns", {})
+            if not isinstance(selected, dict):
+                selected = {}
+            final_map = {}
+            for table, cols in selected.items():
+                if not isinstance(table, str):
+                    continue
+                if not isinstance(cols, list):
+                    continue
+                clean_cols = []
+                for c in cols:
+                    if isinstance(c, str) and c.strip():
+                        clean_cols.append(c.strip())
+                if clean_cols:
+                    final_map[table.strip()] = clean_cols
+
+            payload["selected_columns"] = final_map
+            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
         # Wrap and return the OpenAI-like object
         return _wrap_chat_like(model, payload, getattr(vresp, "usage_metadata", None))
         
