@@ -2,23 +2,124 @@ import os
 import json
 import string
 import logging
+import difflib
 import numpy as np
 import pandas as pd
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-from rank_bm25 import BM25Okapi
 from typing import List
 import pickle
 from datasketch import MinHash, MinHashLSH
 from vertexai.language_models import TextEmbeddingModel
+from vertexai import init as vertex_init
 from pathlib import Path
 from utils.db_utils import execute_sql
+from openai import OpenAI
+
+# Global flag to track if Vertex AI has been initialized
+_vertex_initialized = False
+
+def _ensure_vertex_init():
+    """Ensure Vertex AI is initialized before using embedding models."""
+    global _vertex_initialized
+    if _vertex_initialized:
+        return
+    
+    project = os.getenv("GCP_PROJECT")
+    if not project:
+        raise EnvironmentError("GCP_PROJECT environment variable must be set for Vertex AI embeddings")
+    
+    # Try multiple locations for embedding API
+    locations = ["us-central1", "us-east5", "europe-west1", "asia-southeast1"]
+    env_loc = os.getenv("GCP_LOCATION")
+    if env_loc:
+        locations.insert(0, env_loc)
+    
+    last_error = None
+    for location in locations:
+        try:
+            vertex_init(project=project, location=location)
+            logging.info(f"Vertex AI initialized successfully with location: {location}")
+            _vertex_initialized = True
+            return
+        except Exception as e:
+            last_error = e
+            logging.warning(f"Failed to initialize Vertex AI in {location}: {e}")
+            continue
+    
+    raise RuntimeError(f"Could not initialize Vertex AI in any location. Last error: {last_error}")
+
+def _embed_with_openai(text_list):
+    """Fallback embedding using OpenAI API."""
+    try:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY not set")
+        
+        # Set API key in environment (OpenAI client reads from env by default)
+        os.environ["OPENAI_API_KEY"] = openai_api_key
+        
+        # Initialize client without arguments to avoid compatibility issues
+        # The client will automatically read OPENAI_API_KEY from environment
+        client = OpenAI()
+        
+        response = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text_list
+        )
+        return [item.embedding for item in response.data]
+    except Exception as e:
+        logging.error(f"OpenAI embedding failed: {e}")
+        raise
 
 def embed_batch(text_list):
-    model = TextEmbeddingModel.from_pretrained("textembedding-gecko")
-    embeddings = model.get_embeddings(text_list)
-    return [e.values for e in embeddings]
+    """
+    Embed a batch of text using best available embedding service.
+    
+    Priority:
+    1. OpenAI (more reliable, higher quota)
+    2. Vertex AI (if OpenAI unavailable)
+    """
+    
+    # Try OpenAI first (more reliable)
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            embeddings = _embed_with_openai(text_list)
+            logging.info("Successfully used OpenAI embeddings")
+            return embeddings
+        except Exception as e:
+            logging.warning(f"OpenAI embeddings failed, trying Vertex AI: {e}")
+    
+    # Fallback to Vertex AI
+    try:
+        _ensure_vertex_init()
+    except Exception as e:
+        logging.error(f"Cannot initialize Vertex AI and OpenAI not available: {e}")
+        raise
+    
+    model_names = [
+        "text-embedding-004",
+        "text-embedding-005", 
+        "textembedding-gecko@002",
+        "textembedding-gecko@001",
+        "textembedding-gecko"
+    ]
+    
+    last_error = None
+    for model_name in model_names:
+        try:
+            model = TextEmbeddingModel.from_pretrained(model_name)
+            embeddings = model.get_embeddings(text_list)
+            logging.info(f"Successfully used Vertex AI model: {model_name}")
+            return [e.values for e in embeddings]
+        except Exception as e:
+            last_error = e
+            logging.warning(f"Failed to use model {model_name}: {e}")
+            continue
+    
+    # If all models fail, raise the last error
+    raise Exception(f"All embedding services failed. Last error: {last_error}")
 
 def embed_text(text: str):
     return embed_batch([text])[0]
@@ -173,34 +274,54 @@ def process_all_dbs(dataset_path: str, mode: str):
 
 def get_relevant_db_descriptions(database_description_path: str, question: str, relevant_description_number: int = 6) -> List[str]:
     """
-    The function returns list relevant column descriptions
-
-    Arguments:
-        database_description_path (str): Path to the directory containing database description CSV files.
-        question (str): the considered natural language question
-        relevant_description_number (int): number of top ranked column descriptions
-
-    Returns:
-        relevant_db_descriptions (List[str]): List of relevant column descriptions.
+    CHESS-SQL style: retrieve most relevant schema descriptions via vector search
+    instead of BM25. Falls back to building the vector DB if missing.
     """
-    db_description_csv_path = database_description_path + "/db_description.csv"
-
+    # ensure description CSV exists
+    db_description_csv_path = os.path.join(database_description_path, "db_description.csv")
     if not os.path.exists(db_description_csv_path):
         process_database_descriptions(database_description_path)
-    
-    # Read the database description db_info.csv file
-    db_desc_df = pd.read_csv(db_description_csv_path)
-    db_description_corpus = db_desc_df['column_info'].tolist()
-    db_description_corpus_cleaned = [clean_text(description) for description in db_description_corpus]
 
-    # Tokenize corpus and create bm25 instance using cleaned corpus
-    tokenized_db_description_corpus_cleaned = [doc.split(" ") for doc in db_description_corpus_cleaned]
-    bm25 = BM25Okapi(tokenized_db_description_corpus_cleaned)
+    # ensure vector DB exists and load it
+    db_path = Path(database_description_path).parent
+    db_id = db_path.name
+    vec_dir = db_path / "context_vector_db"
+    vectors_file = vec_dir / f"{db_id}_vectors.npy"
+    meta_file = vec_dir / f"{db_id}_metadata.pkl"
+    if not vectors_file.exists() or not meta_file.exists():
+        logging.warning(f"Vector DB not found for {db_id}. Building now...")
+        make_db_context_vec_db(db_path)
 
-    # Tokenize question
-    tokenized_question = question.split(" ")
+    vectors = np.load(vectors_file)
+    with open(meta_file, "rb") as f:
+        docs_meta = pickle.load(f)
 
-    relevant_db_descriptions = bm25.get_top_n(tokenized_question, db_description_corpus, n=relevant_description_number)
+    # embed query
+    query_vec = np.array(embed_text(question), dtype=float)
+    q_norm = np.linalg.norm(query_vec)
+    if q_norm == 0:
+        q_norm = 1e-9
+    query_vec = query_vec / q_norm
+
+    sims = np.dot(vectors, query_vec)
+    total_candidates = len(sims)
+    if total_candidates == 0:
+        logging.warning(f"No description vectors found for {db_id} at {database_description_path}")
+        return []
+    if relevant_description_number <= 0:
+        return []
+    k = min(relevant_description_number, total_candidates)
+    # use a positive kth index to stay within bounds
+    kth = total_candidates - k
+    top_idx = np.argpartition(sims, kth)[kth:]
+    top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
+
+    relevant_db_descriptions = []
+    for idx in top_idx:
+        meta = docs_meta[idx]
+        text = meta.get("source_text") or meta.get("column_description") or meta.get("value_description", "")
+        if text and text not in relevant_db_descriptions:
+            relevant_db_descriptions.append(text)
     return relevant_db_descriptions
 
 def get_db_column_meanings(database_column_meaning_path: str, db_id: str) -> List[str]:
@@ -289,11 +410,11 @@ def make_db_context_vec_db(db_directory_path: str, use_value_description: bool =
             # Column description text
             if col_info["column_description"]:
                 docs_texts.append(col_info["column_description"])
-                docs_meta.append(metadata)
+                docs_meta.append({**metadata, "source_text": col_info["column_description"]})
             # Value description text (if using)
             if use_value_description and col_info["value_description"]:
                 docs_texts.append(col_info["value_description"])
-                docs_meta.append(metadata)
+                docs_meta.append({**metadata, "source_text": col_info["value_description"]})
     # Embed texts to vectors
     vectors = []
     if len(docs_texts) == 0:
@@ -578,29 +699,46 @@ def query_db_values(db_directory_path: str, keywords: List[str], top_n: int = 10
             sims.append((res, sim))
 
         sims.sort(key=lambda x: x[1], reverse=True)
-        # NOTE: sims is already pruned by LSH threshold, so we can keep
-        # some number of best matches for this keyword
-        for res, sim in sims[:top_n]:
+        
+        # Use only Jaccard + edit distance (skip expensive semantic embedding)
+        for res, jac_sim in sims[:top_n]:
             _, table_name, col_name, value = minhashes[res]
             key = (table_name, col_name)
 
+            # Skip if Jaccard similarity is too low (not a real match)
+            if jac_sim < 0.3:
+                continue
+
+            # edit-distance similarity
+            ed_sim = difflib.SequenceMatcher(None, keyword.lower(), str(value).lower()).ratio()
+
+            # combined score: prioritize exact/substring matches
+            combined_sim = 0.6 * jac_sim + 0.4 * ed_sim
+
             # aggregate score per column
-            column_scores[key] = column_scores.get(key, 0.0) + float(sim)
+            column_scores[key] = column_scores.get(key, 0.0) + combined_sim
 
             # store value-level hit
             vlist = value_hits.setdefault(key, [])
-            vlist.append((value, float(sim)))
+            vlist.append((value, combined_sim))
 
     if not column_scores:
         return {}
 
-    # 2) Select top columns overall
+    # 2) Select top columns overall - be more strict about threshold
     sorted_cols = sorted(column_scores.items(), key=lambda x: x[1], reverse=True)
-    top_cols = [k for k, _ in sorted_cols[:max_columns]]
-
+    
+    # Only keep columns with reasonable scores
+    threshold = 0.4
+    top_cols_filtered = [(k, score) for k, score in sorted_cols if score >= threshold][:max_columns]
+    
+    if not top_cols_filtered:
+        # If threshold is too strict, fall back to top max_columns
+        top_cols_filtered = sorted_cols[:max_columns]
+    
     # 3) For each column, keep top values
     similar_entities = {}
-    for (table_name, col_name) in top_cols:
+    for (table_name, col_name), _ in top_cols_filtered:
         vals_scores = value_hits.get((table_name, col_name), [])
         vals_scores.sort(key=lambda x: x[1], reverse=True)
         top_vals = []

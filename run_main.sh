@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+fi
+
+# Set Google Cloud environment variables (override if needed)
+export GOOGLE_APPLICATION_CREDENTIALS="/Users/yigitkemalcan/Desktop/nlq-to-sql/json_folder/vertex-trial-new-ea1cf18754d4.json"
+export GCP_PROJECT="vertex-trial-new"
+export GCP_LOCATION="us-central1"
+
 # Set default values for the arguments
 mode="dev"
 model="gemini-2.5-flash"  # For GPT-4o use "gpt-4o-2024-08-06". For GPT-4o mini use "gpt-4o-mini-2024-07-18". For gemini use "gemini-2.5-flash"

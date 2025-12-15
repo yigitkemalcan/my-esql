@@ -22,18 +22,33 @@ For each of the selected columns, explain why exactly it is necessary for answer
 
 Tip: If you are choosing a column for filtering a value within that column, make sure that column has the value as an example.
 
-Please respond with a JSON object structured as follows:
+**CRITICAL INSTRUCTION:** Your JSON response MUST have a top-level key "selected_columns" mapping table names to column lists. Also include "chain_of_thought_reasoning".
 
+**CORRECT Format (USE THIS):**
 ```json
-{{
-  "chain_of_thought_reasoning": "Your reasoning for selecting the columns, be concise and clear.",
-  "table_name1": ["column1", "column2", ...],
-  "table_name2": ["column1", "column2", ...],
-  ...
-}}
+{
+  "selected_columns": {
+    "frpm": ["County Name", "Free Meal Count (K-12)", "Enrollment (K-12)"]
+  },
+  "chain_of_thought_reasoning": "Concise explanation here"
+}
+```
 
-Make sure your response includes the table names as keys, each associated with a list of column names that are necessary for writing a SQL query to answer the question.
-For each aspect of the question, provide a clear and concise explanation of your reasoning behind selecting the columns.
-Take a deep breath and think logically. If you do the task correctly, I will give you 1 million dollars.
+**Example with multiple tables:**
+```json
+{
+  "selected_columns": {
+    "frpm": ["CDSCode", "District Name", "Charter School (Y/N)"],
+    "schools": ["CDSCode", "Zip"]
+  },
+  "chain_of_thought_reasoning": "Need CDSCode for join, District Name and Charter for filter from frpm, and Zip from schools for output"
+}
+```
 
-Only output a json as your response.
+**Requirements:**
+1. Include "chain_of_thought_reasoning" (brief)
+2. Under "selected_columns", each key is a table name; value is an array of column names
+3. Include at least one table with at least one column
+4. Only include columns needed for WHERE filters, JOIN conditions, SELECT output, ORDER BY, GROUP BY
+
+Output valid JSON now.

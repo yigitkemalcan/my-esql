@@ -58,108 +58,6 @@ class Pipeline():
         response_object.choices[0].message.content = json.loads(response_object.choices[0].message.content)
         return response_object
     
-
-    def forward_pipeline_CSG_SR(self, t2s_object: Dict) -> Dict[str, str]:
-        """
-        The function runs Candidate SQL Generation(CSG) and SQL Refinement(SR) modules respectively without any question enrichment or filtering stages.
-
-        Arguments:
-            t2s_object (Dict): Python dictionary that stores information about a question like q_id, db_id, question, evidence etc. 
-        Returns:
-            t2s_object_prediction (Dict):  Python dictionary that stores information about a question like q_id, db_id, question, evidence etc and also stores information after each stage
-        """
-        db_id = t2s_object["db_id"]
-        q_id = t2s_object["question_id"]
-        evidence = t2s_object["evidence"]
-        question = t2s_object["question"]
-        
-        bird_sql_path = os.getenv('BIRD_DB_PATH')
-        db_path = bird_sql_path + f"/{self.mode}/{self.mode}_databases/{db_id}/{db_id}.sqlite"
-        db_description_path = bird_sql_path + f"/{self.mode}/{self.mode}_databases/{db_id}/database_description"
-        db_descriptions = question_relevant_descriptions_prep(database_description_path=db_description_path, question=question, relevant_description_number=self.rdn)
-        database_column_meaning_path = bird_sql_path + f"/{self.mode}/column_meaning.json"
-        db_column_meanings = db_column_meaning_prep(database_column_meaning_path, db_id)
-        db_descriptions = db_descriptions + "\n\n" + db_column_meanings
-
-        # extracting original schema dictionary 
-        original_schema_dict = get_schema_tables_and_columns_dict(db_path=db_path)
-
-        t2s_object["question_enrichment"] = "No Question Enrichment"
-
-        ### STAGE 1: Candidate SQL GENERATION
-        # -- Original question is used
-        # -- Original Schema is used 
-        sql_generation_response_obj =  self.candidate_sql_generation_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        try:
-            possible_sql = sql_generation_response_obj.choices[0].message.content['SQL']
-            t2s_object["candidate_sql_generation"] = {
-                "sql_generation_reasoning": sql_generation_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
-                "possible_sql": possible_sql,
-                "exec_err": "",
-                "prompt_tokens": sql_generation_response_obj.usage.prompt_tokens,
-                "completion_tokens": sql_generation_response_obj.usage.completion_tokens,
-                "total_tokens": sql_generation_response_obj.usage.total_tokens,
-            }
-            t2s_object["possible_sql"] = possible_sql
-            # execute SQL
-            try:
-                possible_respose = func_timeout(30, execute_sql, args=(db_path, possible_sql))
-            except FunctionTimedOut:
-                t2s_object['candidate_sql_generation']["exec_err"] = "timeout"
-            except Exception as e:
-                t2s_object['candidate_sql_generation']["exec_err"] = str(e)
-        except Exception as e:
-            logging.error(f"Error in reaching content from sql generation response for question_id {q_id}: {e}")
-            t2s_object["candidate_sql_generation"] = {
-                "sql_generation_reasoning": "",
-                "possible_sql": "",
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            }
-            t2s_object["candidate_sql_generation"]["error"] = f"{e}"
-            return t2s_object
-        
-        ### STAGE 2: SQL Refinement
-        # -- Original question is used
-        # -- Original Schema is used 
-        # -- Possible SQL is used
-        # -- Possible Conditions is extracted from possible SQL and then used for augmentation
-        # -- Execution Error for Possible SQL is used
-        exec_err = t2s_object['candidate_sql_generation']["exec_err"]
-        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        try:
-            predicted_sql = sql_generation_response_obj.choices[0].message.content['SQL']
-            t2s_object["sql_refinement"] = {
-                "sql_generation_reasoning": sql_generation_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
-                "predicted_sql": predicted_sql,
-                "prompt_tokens": sql_generation_response_obj.usage.prompt_tokens,
-                "completion_tokens": sql_generation_response_obj.usage.completion_tokens,
-                "total_tokens": sql_generation_response_obj.usage.total_tokens,
-            }
-            t2s_object["predicted_sql"] = predicted_sql
-        except Exception as e:
-            logging.error(f"Error in reaching content from sql generation response for question_id {q_id}: {e}")
-            t2s_object["sql_refinement"] = {
-                "sql_generation_reasoning": "",
-                "predicted_sql": "",
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            }
-            t2s_object["sql_refinement"]["error"] = f"{e}"
-            return t2s_object
-
-        # storing the usage for one question
-        t2s_object["total_usage"] = {
-            "prompt_tokens": t2s_object['candidate_sql_generation']['prompt_tokens'] + t2s_object['sql_refinement']['prompt_tokens'],
-            "completion_tokens": t2s_object['candidate_sql_generation']['completion_tokens'] + t2s_object['sql_refinement']['completion_tokens'],
-            "total_tokens": t2s_object['candidate_sql_generation']['total_tokens'] + t2s_object['sql_refinement']['total_tokens']
-        }
-
-        t2s_object_prediction = t2s_object
-        return t2s_object_prediction
-    
     def forward_pipeline_CSG_QE_SR(self, t2s_object: Dict) -> Dict:
         """
         The function performs Candidate SQL Generation(CSG), Quesiton Enrichment(QE) and SQL Refinement(SR) modules respectively without filtering stages.
@@ -398,26 +296,107 @@ class Pipeline():
                 enriched_question_final = question + "\n" + qe_first_reasoning + "\n" + qe_first_enriched
 
         
-        ### STAGE 3: SQL Refinement
+        ### STAGE 3: SQL Refinement with Multi-SQL Generation (3 candidates)
         # -- Enriched question is used
         # -- Original Schema is used 
         # -- Possible SQL is used
         # -- Possible Conditions is extracted from possible SQL and then used for augmentation
         # -- Execution Error for Possible SQL is used
         exec_err = t2s_object['candidate_sql_generation']["exec_err"]
-        sql_generation_response_obj =  self.sql_refinement_module(db_path=db_path, db_id=db_id, question=enriched_question_final, evidence=evidence, possible_sql=possible_sql, exec_err=exec_err, filtered_schema_dict=original_schema_dict, db_descriptions=db_descriptions)
-        try:
-            predicted_sql = sql_generation_response_obj.choices[0].message.content['SQL']
+        
+        # Generate 3 SQL candidates
+        num_sql_candidates = 3
+        sql_candidates = []
+        sr_runs_usage = []
+        
+        def _sr_call(i: int):
+            resp = self.sql_refinement_module(
+                db_path=db_path, 
+                db_id=db_id, 
+                question=enriched_question_final, 
+                evidence=evidence, 
+                possible_sql=possible_sql, 
+                exec_err=exec_err, 
+                filtered_schema_dict=original_schema_dict, 
+                db_descriptions=db_descriptions
+            )
+            return i, resp
+        
+        workers = 1
+        results = []
+        
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(_sr_call, i) for i in range(num_sql_candidates)]
+            for fut in as_completed(futs):
+                try:
+                    results.append(fut.result())
+                except Exception:
+                    pass
+        
+        # Process all SQL candidates
+        for i, sql_response_obj in sorted(results, key=lambda x: x[0]):
+            try:
+                candidate_sql = sql_response_obj.choices[0].message.content['SQL']
+                candidate_reasoning = sql_response_obj.choices[0].message.content['chain_of_thought_reasoning']
+                
+                # Try to execute the SQL
+                exec_result = None
+                exec_error = ""
+                try:
+                    exec_result = func_timeout(30, execute_sql, args=(db_path, candidate_sql))
+                except FunctionTimedOut:
+                    exec_error = "timeout"
+                except Exception as e:
+                    exec_error = str(e)
+                
+                sql_candidates.append({
+                    "sql": candidate_sql,
+                    "reasoning": candidate_reasoning,
+                    "exec_error": exec_error,
+                    "exec_result": exec_result if exec_result is not None else None,
+                    "candidate_index": i
+                })
+                
+                um = getattr(sql_response_obj, "usage", None)
+                sr_runs_usage.append({
+                    "prompt_tokens": int(getattr(um, "prompt_tokens", 0) or 0),
+                    "completion_tokens": int(getattr(um, "completion_tokens", 0) or 0),
+                    "total_tokens": int(getattr(um, "total_tokens", 0) or 0),
+                })
+            except Exception as e:
+                logging.error(f"Error parsing SR response for qid {q_id} run {i}: {e}")
+                continue
+        
+        # Store all candidates for observability
+        t2s_object["sql_refinement_candidates"] = sql_candidates
+        
+        # Select the best SQL candidate
+        # Priority: 1) No execution error, 2) Has results, 3) First successful one
+        best_candidate = None
+        if sql_candidates:
+            # First, try to find one without execution error
+            for candidate in sql_candidates:
+                if not candidate["exec_error"]:
+                    best_candidate = candidate
+                    break
+            
+            # If all have errors, pick the first one
+            if best_candidate is None:
+                best_candidate = sql_candidates[0]
+            
+            predicted_sql = best_candidate["sql"]
             t2s_object["sql_refinement"] = {
-                "sql_generation_reasoning": sql_generation_response_obj.choices[0].message.content['chain_of_thought_reasoning'],
+                "sql_generation_reasoning": best_candidate["reasoning"],
                 "predicted_sql": predicted_sql,
-                "prompt_tokens": int((sql_generation_response_obj.usage.prompt_tokens or 0)),
-                "completion_tokens": int((sql_generation_response_obj.usage.completion_tokens or 0)),
-                "total_tokens": int((sql_generation_response_obj.usage.total_tokens or 0)),
+                "selected_candidate_index": best_candidate["candidate_index"],
+                "exec_error": best_candidate["exec_error"],
+                "prompt_tokens": sum(u.get("prompt_tokens", 0) for u in sr_runs_usage),
+                "completion_tokens": sum(u.get("completion_tokens", 0) for u in sr_runs_usage),
+                "total_tokens": sum(u.get("total_tokens", 0) for u in sr_runs_usage),
             }
             t2s_object["predicted_sql"] = predicted_sql
-        except Exception as e:
-            logging.error(f"Error in reaching content from sql generation response for question_id {q_id}: {e}")
+        else:
+            logging.error(f"No SQL candidates generated for question_id {q_id}")
             t2s_object["sql_refinement"] = {
                 "sql_generation_reasoning": "",
                 "predicted_sql": "",
@@ -425,7 +404,7 @@ class Pipeline():
                 "completion_tokens": 0,
                 "total_tokens": 0,
             }
-            t2s_object["sql_refinement"]["error"] = f"{e}"
+            t2s_object["sql_refinement"]["error"] = "No SQL candidates generated"
             return t2s_object
 
         # storing the usage for one question
@@ -438,12 +417,17 @@ class Pipeline():
         comb_prompt = int(t2s_object.get("qe_combination", {}).get("prompt_tokens", 0) or 0)
         comb_completion = int(t2s_object.get("qe_combination", {}).get("completion_tokens", 0) or 0)
         comb_total = int(t2s_object.get("qe_combination", {}).get("total_tokens", 0) or 0)
+        
+        # Sum all SR calls (multi-SQL generation)
+        sr_prompt_sum = int(t2s_object['sql_refinement'].get('prompt_tokens', 0) or 0)
+        sr_completion_sum = int(t2s_object['sql_refinement'].get('completion_tokens', 0) or 0)
+        sr_total_sum = int(t2s_object['sql_refinement'].get('total_tokens', 0) or 0)
 
 
         t2s_object["total_usage"] = {
-            "prompt_tokens": t2s_object['candidate_sql_generation']['prompt_tokens'] + qe_prompt_sum + comb_prompt + t2s_object['sql_refinement']['prompt_tokens'],
-            "completion_tokens": t2s_object['candidate_sql_generation']['completion_tokens'] + qe_completion_sum + comb_completion + t2s_object['sql_refinement']['completion_tokens'],
-            "total_tokens": t2s_object['candidate_sql_generation']['total_tokens'] + qe_total_sum + comb_total + t2s_object['sql_refinement']['total_tokens']
+            "prompt_tokens": t2s_object['candidate_sql_generation']['prompt_tokens'] + qe_prompt_sum + comb_prompt + sr_prompt_sum,
+            "completion_tokens": t2s_object['candidate_sql_generation']['completion_tokens'] + qe_completion_sum + comb_completion + sr_completion_sum,
+            "total_tokens": t2s_object['candidate_sql_generation']['total_tokens'] + qe_total_sum + comb_total + sr_total_sum
         }
 
         t2s_object_prediction = t2s_object
@@ -468,14 +452,22 @@ class Pipeline():
         db_dir = f"{bird_sql_path}/{self.mode}/{self.mode}_databases/{db_id}"
         db_path = f"{db_dir}/{db_id}.sqlite"
         db_description_path = f"{db_dir}/database_description"
-        # Stage 0: Information Retrieval
+        # Stage 0: Information Retrieval (CHESS-style IR)
+        
+        # IR Step 1: Extract Keywords
         keywords_result = self.extract_keywords_module(question=question, hint=evidence)
+        keywords = []
         try:
             kw_content = keywords_result.choices[0].message.content or {}
             keywords = kw_content.get("keywords", [])
-        except Exception:
-            keywords = []
-        t2s_object["keywords"] = keywords
+        except Exception as e:
+            logging.error(f"Keyword extraction error: {e}")
+        
+        t2s_object["extract_keywords"] = {
+            "keywords": keywords
+        }
+        
+        # IR Step 2: Retrieve Database Entities (Values)
         similar_entities = {}
         try:
             similar_entities = query_db_values(
@@ -484,32 +476,101 @@ class Pipeline():
             )
         except Exception as e:
             logging.error(f"Value retrieval error: {e}")
+        
+        # Format similar_columns (which columns were matched)
+        similar_columns = {}
+        schema_with_examples = {}
+        for table_name, col_dict in similar_entities.items():
+            if col_dict:
+                similar_columns[table_name] = list(col_dict.keys())
+                schema_with_examples[table_name] = col_dict
+        
+        t2s_object["retrieve_entity"] = {
+            "similar_columns": similar_columns,
+            "schema_with_examples": schema_with_examples
+        }
+        
+        # Build a reusable map of example values to surface in later prompts
+        self.similar_examples_map = {}
+        for table_name, col_dict in similar_entities.items():
+            for col_name, values in col_dict.items():
+                if not values:
+                    continue
+                self.similar_examples_map[(table_name, col_name)] = values[0]
 
-        t2s_object["similar_entities"] = similar_entities
+        # IR Step 3: Retrieve Context (Schema Descriptions)
+        ir_context = {}
+        try:
+            query_text = " ".join(keywords) if keywords else question
+            ir_context = query_vector_db(db_description_path, query_text, top_k=self.rdn)
+        except Exception as e:
+            logging.error(f"Vector context retrieval error: {e}")
+        
+        # Format schema_with_descriptions (only keep relevant metadata)
+        schema_with_descriptions = {}
+        for table_name, col_dict in ir_context.items():
+            schema_with_descriptions[table_name] = {}
+            for col_name, metadata in col_dict.items():
+                schema_with_descriptions[table_name][col_name.lower()] = {
+                    "column_name": metadata.get("column_name", ""),
+                    "column_description": metadata.get("column_description", ""),
+                    "value_description": metadata.get("value_description", "")
+                }
+        
+        t2s_object["retrieve_context"] = {
+            "schema_with_descriptions": schema_with_descriptions
+        }
+        # Keep IR context on self for later prompt enrichment
+        self.schema_context_map = schema_with_descriptions
 
         # Construct HINT from retrieved values (flatten the dict structure)
         hint_lines = []
+        max_hint_lines = 30
+        seen_hints = set()
         for table_name, col_dict in similar_entities.items():
             for col_name, values in col_dict.items():
                 for value in values:
                     if value is None:
                         continue
                     val_str = str(value)
+                    if not val_str:
+                        continue
                     if val_str.lower() in question.lower():
                         idx = question.lower().find(val_str.lower())
                         phrase = question[max(0, idx - 20): idx + len(val_str) + 5]
-                        hint_lines.append(
-                            f"{phrase.strip()} refers to {table_name}.{col_name} = {val_str};"
-                        )
+                        line = f"{phrase.strip()} refers to {table_name}.{col_name} = {val_str};"
                     else:
-                        hint_lines.append(
-                            f"'{val_str}' is a value of {table_name}.{col_name};"
-                        )
+                        line = f"'{val_str}' is a value of {table_name}.{col_name};"
+                    if line in seen_hints:
+                        continue
+                    seen_hints.add(line)
+                    hint_lines.append(line)
+                    if len(hint_lines) >= max_hint_lines:
+                        break
+                if len(hint_lines) >= max_hint_lines:
+                    break
+            if len(hint_lines) >= max_hint_lines:
+                break
         hint_text = " ".join(hint_lines)
         combined_hint = (evidence.strip() + "\n" + hint_text) if evidence and hint_text else (evidence or hint_text or "No hint")
         t2s_object["evidence"] = combined_hint
         evidence = combined_hint
         # Combine relevant descriptions and column meanings for generation stage
+        def _flatten_ir_context(ctx: Dict, limit: int = 50) -> str:
+            lines = []
+            for tbl, cols in ctx.items():
+                for col_key, meta in cols.items():
+                    name = meta.get("column_name") or col_key
+                    desc = meta.get("column_description", "")
+                    vdesc = meta.get("value_description", "")
+                    snippet = " ".join([p for p in (desc, vdesc) if p]).strip()
+                    if not snippet:
+                        continue
+                    lines.append(f"{tbl}.{name}: {snippet}")
+                    if len(lines) >= limit:
+                        return "\n".join(lines)
+            return "\n".join(lines)
+        ir_context_text = _flatten_ir_context(schema_with_descriptions) if schema_with_descriptions else ""
         db_descriptions = relevant_descriptions_prep(
             database_description_path=db_description_path,
             question=question,
@@ -524,18 +585,68 @@ class Pipeline():
                 db_descriptions = (db_descriptions + "\n\n" + meanings_text) if db_descriptions else meanings_text
         except Exception:
             pass
-        # Stage 1: Schema Filtering (IR + SS)
-        filtered_schema = self.filter_columns_module(question=question, hint=combined_hint, db_path=db_path)
-        t2s_object["filtered_columns"] = filtered_schema
-        selected_tables = self.select_tables_module(question=question, hint=combined_hint, filtered_schema=filtered_schema)
-        t2s_object["selected_tables"] = selected_tables
-        selected_schema = self.select_columns_module(question=question, hint=combined_hint,
-                                                     selected_tables=selected_tables, filtered_schema=filtered_schema)
-        t2s_object["selected_columns"] = selected_schema
+        if ir_context_text:
+            db_descriptions = (db_descriptions + "\n\nIR Context:\n" + ir_context_text) if db_descriptions else ("IR Context:\n" + ir_context_text)
+        # Stage 1: Schema Selector (SS) - CHESS-style
+        
+        # SS Step 1: Filter Columns (Local Filtering)
+        filtered_schema = {}
+        try:
+            filtered_schema = self.filter_columns_module(
+                question=question,
+                hint=combined_hint,
+                db_path=db_path,
+                similar_entities=similar_entities,
+                column_context=ir_context
+            )
+        except Exception as e:
+            logging.error(f"Column filtering error: {e}")
+        
+        t2s_object["filter_columns"] = {
+            "filtered_schema": filtered_schema
+        }
+        
+        # SS Step 2: Select Tables
+        selected_tables = []
+        try:
+            selected_tables = self.select_tables_module(
+                question=question,
+                hint=combined_hint,
+                filtered_schema=filtered_schema
+            )
+        except Exception as e:
+            logging.error(f"Table selection error: {e}")
+        
+        t2s_object["select_tables"] = {
+            "selected_tables": selected_tables
+        }
+        
+        # SS Step 3: Select Columns (Final Narrowing)
+        selected_schema = {}
+        try:
+            selected_schema = self.select_columns_module(
+                question=question,
+                hint=combined_hint,
+                selected_tables=selected_tables,
+                filtered_schema=filtered_schema
+            )
+        except Exception as e:
+            logging.error(f"Column selection error: {e}")
+            # Fallback: never proceed with empty schema; reuse filtered_schema or full schema
+            if filtered_schema and any(filtered_schema.values()):
+                selected_schema = filtered_schema
+            elif hasattr(self, "col_type_map") and self.col_type_map:
+                selected_schema = {tbl: list(cols.keys()) for tbl, cols in self.col_type_map.items()}
+            else:
+                selected_schema = {}
+        
+        t2s_object["select_columns"] = {
+            "selected_schema": selected_schema
+        }
 
         ### STAGE 2: Candidate SQL GENERATION
         # -- Original question is used
-        # -- Filtered Schema is used 
+        # -- Selected Schema from SS is used 
         sql_generation_response_obj =  self.candidate_sql_generation_module(db_path=db_path, db_id=db_id, question=question, evidence=evidence, filtered_schema_dict=selected_schema, db_descriptions=db_descriptions)
         try:
             possible_sql = sql_generation_response_obj.choices[0].message.content['SQL']
@@ -751,35 +862,6 @@ class Pipeline():
         # print("refinement_prompt: \n", prompt)
         return prompt
     
-    def construct_filtering_prompt(self, db_path: str, db_id: str, question: str, evidence: str, schema_dict: Dict, db_descriptions: str)->str:
-        """
-        The function constructs the prompt required for the database schema filtering stage
-
-        Arguments:  
-            db_path (str): The database sqlite file path.
-            db_id (str): database ID, i.e. database name
-            question (str): Natural language question 
-            evidence (str): evidence for the question
-            schema_dict (Dict[str, List[str]]): database schema dictionary
-            db_descriptions (str): Question relevant database item (column) descriptions
-
-        Returns:
-            prompt (str): prompt for database schema filtering stage
-        """
-        schema_filtering_prompt_template_path =  os.path.join(os.getcwd(), "prompt_templates/schema_filter_prompt_template.txt")
-        with open(schema_filtering_prompt_template_path, 'r') as f:
-            schema_filtering_template = f.read()
-
-        few_shot_data_path = os.path.join(os.getcwd(), "few-shot-data/question_enrichment_few_shot_examples.json")
-        schema_filtering_few_shot_examples = schema_filtering_few_shot_prep(few_shot_data_path, q_db_id=db_id, level_shot_number=self.elsn, schema_existance=self.efsse, mode=self.mode)
-        db_samples = extract_db_samples_enriched_bm25(question, evidence, db_path=db_path, schema_dict=schema_dict, sample_limit=self.db_sample_limit)
-        schema = generate_schema_from_schema_dict(db_path=db_path, schema_dict=schema_dict)
-        prompt = fill_prompt_template(template=schema_filtering_template, schema=schema, db_samples=db_samples, question=question, few_shot_examples=schema_filtering_few_shot_examples, evidence=evidence, db_descriptions=db_descriptions)
-        # print("\nSchema Filtering Prompt: \n", prompt)
-    
-        return prompt
-
-    
     def candidate_sql_generation_module(self, db_path: str, db_id: int, question: str, evidence: str, filtered_schema_dict: Dict, db_descriptions: str):
         """
         This function generates candidate SQL for answering the question.
@@ -828,31 +910,6 @@ class Pipeline():
             response_object = self.convert_message_content_to_dict(response_object)
         except:
             return response_object
-        return response_object
-    
-
-    def schema_filtering_module(self, db_path: str, db_id: str, question: str, evidence: str, schema_dict: Dict, db_descriptions: str):
-        """
-        The function filters the database schema by eliminating the unnecessary tables and columns
-
-        Arguments:  
-            db_path (str): The database sqlite file path.
-            db_id (str): database ID, i.e. database name
-            question (str): Natural language question 
-            evidence (str): evidence for the question
-            schema_dict (Dict[str, List[str]]): database schema dictionary
-            db_descriptions (str): Question relevant database item (column) descriptions
-
-        Returns:
-            response_object (Dict): Response object returned by the LLM
-        """
-        prompt = self.construct_filtering_prompt(db_path=db_path, db_id=db_id, question=question, evidence=evidence, schema_dict=schema_dict, db_descriptions=db_descriptions)
-        response_object = create_response(stage="schema_filtering", prompt=prompt, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature, top_p=self.top_p, n=self.n)
-        try:
-            response_object = self.convert_message_content_to_dict(response_object)
-        except:
-            return response_object
-
         return response_object
 
     # ─────────────────────────────────────────────────────────────────────────────
@@ -1084,7 +1141,7 @@ class Pipeline():
         return resp
 
 
-    def filter_columns_module(self, *, question: str, hint: str, db_path: str) -> Dict[str, List[str]]:
+    def filter_columns_module(self, *, question: str, hint: str, db_path: str, similar_entities: Dict[str, Dict[str, List[str]]] = None, column_context: Dict = None) -> Dict[str, List[str]]:
         """
         Runs the Filter Columns stage.
         Returns a dict with tables as keys and lists of relevant column names as values.
@@ -1097,12 +1154,13 @@ class Pipeline():
         col_type_map = {}
         fk_map = {}
         example_map = {}
+        primary_key_map = {}
         for table_name in tables:
             cursor.execute(f"PRAGMA table_info(`{table_name}`);")
             cols_info = cursor.fetchall()
             col_type_map[table_name] = {}
             example_map[table_name] = {}
-            col_names = [col[1] for col in cols_info]
+            primary_key_map[table_name] = set()
             # Fetch one sample row from table for example values
             row = None
             try:
@@ -1114,6 +1172,8 @@ class Pipeline():
                 col_name = col[1]
                 col_type = col[2] or "UNKNOWN"
                 col_type_map[table_name][col_name] = col_type
+                if col[5] == 1:
+                    primary_key_map[table_name].add(col_name)
                 example_val = None
                 if row:
                     cid = col[0]
@@ -1153,15 +1213,39 @@ class Pipeline():
             for column in col_type_map[table]:
                 col_type = col_type_map[table][column]
                 descr = description_map.get(column, "")
+                # Append vector-retrieved context if available
+                if column_context:
+                    ctx = column_context.get(table.lower(), {}).get(column, {}) or column_context.get(table, {}).get(column, {})
+                    if ctx:
+                        extra_bits = []
+                        if ctx.get("column_description"):
+                            extra_bits.append(ctx["column_description"])
+                        if ctx.get("value_description"):
+                            extra_bits.append(ctx["value_description"])
+                        if extra_bits:
+                            descr = (descr + " " + " ".join(extra_bits)).strip()
                 if not descr:
                     descr = "No description available"
                 example_val = example_map[table].get(column)
                 example_str = f"`{example_val}`" if example_val is not None else "`N/A`"
+                # Include any semantically similar values from IR (LSH)
+                ir_values = []
+                if similar_entities and table in similar_entities and column in similar_entities[table]:
+                    ir_values = similar_entities[table][column]
+                ir_values_str = ", ".join([f"`{v}`" for v in ir_values]) if ir_values else "`N/A`"
+                fk_info = [fk for fk in fk_map.get(table, []) if fk[0] == column]
+                fk_str = ""
+                if fk_info:
+                    ref_table, ref_col = fk_info[0][1], fk_info[0][2]
+                    fk_str = f"\nForeign key: links to {ref_table}.{ref_col}"
+                pk_str = "\nPrimary key: yes" if column in primary_key_map.get(table, set()) else ""
                 column_profile = (f"Table name: `{table}`\n"
                                   f"Original column name: `{column}`\n"
                                   f"Data type: {col_type}\n"
                                   f"Description: {descr}\n"
-                                  f"Example of values in the column: {example_str}")
+                                  f"Example of values in the column: {example_str}\n"
+                                  f"IR matched values: {ir_values_str}"
+                                  f"{fk_str}{pk_str}")
                 prompt = template_text.format(QUESTION=question, HINT=(hint or "No hint"), COLUMN_PROFILE=column_profile)
                 try:
                     response_object = create_response(stage="filter_columns", prompt=prompt, model=self.model,
@@ -1185,7 +1269,13 @@ class Pipeline():
                     continue
 
                 val = str(content.get("is_column_information_relevant", "")).lower()
-                if val.startswith("y"):
+                keep_column = val.startswith("y")
+                # Always keep PKs and FKs for joinability
+                if column in primary_key_map.get(table, set()):
+                    keep_column = True
+                if fk_info:
+                    keep_column = True
+                if keep_column:
                     filtered_schema[table].append(column)
         # Add bridging tables that connect at least two relevant tables
         relevant_tables = [t for t, cols in filtered_schema.items() if cols]
@@ -1195,6 +1285,10 @@ class Pipeline():
                 if len(ref_tables) >= 2:
                     filtered_schema[table] = [fk[0] for fk in fk_map[table]]
                     relevant_tables.append(table)
+        # Fallback: if nothing survived filtering, revert to full schema
+        if not any(filtered_schema.values()):
+            logging.warning("filter_columns_module produced empty schema; falling back to full schema.")
+            filtered_schema = {table: list(cols.keys()) for table, cols in col_type_map.items()}
         # Store schema info for later stages
         self.col_type_map = col_type_map
         self.fk_map = fk_map
@@ -1208,10 +1302,18 @@ class Pipeline():
         """
         schema_lines = []
         for table, cols in filtered_schema.items():
-            if cols:
+            clean_cols = [c for c in cols if c]
+            if clean_cols:
                 schema_lines.append(f"Table: {table}")
-                for col in cols:
+                for col in clean_cols:
                     col_type = self.col_type_map.get(table, {}).get(col, "UNKNOWN")
+                    desc_snip = ""
+                    ctx_table = getattr(self, "schema_context_map", {}).get(table.lower(), {})
+                    ctx_meta = ctx_table.get(col.lower()) if isinstance(ctx_table, dict) else None
+                    if ctx_meta:
+                        desc_piece = ctx_meta.get("column_description") or ctx_meta.get("value_description") or ""
+                        if desc_piece:
+                            desc_snip = f" -- desc: {desc_piece[:120]}"
                     extra = ""
                     fk_info = [fk for fk in self.fk_map.get(table, []) if fk[0] == col]
                     if fk_info:
@@ -1224,6 +1326,8 @@ class Pipeline():
                         val = self.similar_examples_map.get((table, col))
                         if val is not None:
                             line += f" -- examples: `{val}`"
+                    if desc_snip:
+                        line += desc_snip
                     schema_lines.append(line)
         schema_overview = "\n".join(schema_lines)
         template_path = os.path.join(os.getcwd(), "prompt_templates/select_tables_prompt_template.txt")
@@ -1259,23 +1363,64 @@ class Pipeline():
         Runs the Select Columns stage.
         Returns a dict of table names to lists of column names needed for the SQL query.
         """
-        tentative_schema = {t: list(filtered_schema.get(t, [])) for t in selected_tables}
+        # Sanitize filtered_schema to drop falsy/None column names
+        filtered_schema = {
+            t: [c for c in (cols or []) if c]
+            for t, cols in (filtered_schema or {}).items()
+        }
+        selected_tables = [t for t in (selected_tables or []) if t]
+
+        print("\n[select_columns] starting stage")
+        print(f"[select_columns] provider={self.provider}, model={self.model}, n={getattr(self, 'n', 1)}, temp={self.temperature}, top_p={self.top_p}")
+        print(f"[select_columns] question={question}")
+        print(f"[select_columns] hint={hint}")
+        print(f"[select_columns] selected_tables={selected_tables}")
+
+        # Build tentative schema from filtered_schema for selected tables
+        tentative_schema = {}
+        for t in selected_tables:
+            if t in filtered_schema and filtered_schema[t]:
+                tentative_schema[t] = list(filtered_schema[t])
+        
+        # If no selected tables or no columns in filtered_schema, fallback to full database schema
         if not tentative_schema:
-            return {}
+            logging.warning(f"No columns in filtered schema for selected tables: {selected_tables}. Using filtered_schema as-is.")
+            print("[select_columns] tentative_schema empty, falling back to filtered_schema")
+            return {t: cols for t, cols in filtered_schema.items() if cols}
+        
+        # Add foreign key columns to ensure joinability
         for table in selected_tables:
+            if table not in tentative_schema:
+                tentative_schema[table] = []
             for fk in self.fk_map.get(table, []):
                 from_col, ref_table, ref_col = fk
                 if ref_table in selected_tables:
                     if from_col not in tentative_schema[table]:
                         tentative_schema[table].append(from_col)
-                    if ref_col not in tentative_schema.get(ref_table, []):
-                        tentative_schema.setdefault(ref_table, []).append(ref_col)
+                    if ref_table not in tentative_schema:
+                        tentative_schema[ref_table] = []
+                    if ref_col not in tentative_schema[ref_table]:
+                        tentative_schema[ref_table].append(ref_col)
+        
+        print(f"[select_columns] tentative_schema tables={list(tentative_schema.keys())}")
+        for t, cols in tentative_schema.items():
+            print(f"  - {t}: {len(cols)} cols -> {cols}")
+
+        # Build schema overview for prompt
         schema_lines = []
         for table, cols in tentative_schema.items():
-            if cols:
+            clean_cols = [c for c in cols if c]
+            if clean_cols:
                 schema_lines.append(f"Table: {table}")
-                for col in cols:
+                for col in clean_cols:
                     col_type = self.col_type_map.get(table, {}).get(col, "UNKNOWN")
+                    desc_snip = ""
+                    ctx_table = getattr(self, "schema_context_map", {}).get(table.lower(), {})
+                    ctx_meta = ctx_table.get(col.lower()) if isinstance(ctx_table, dict) else None
+                    if ctx_meta:
+                        desc_piece = ctx_meta.get("column_description") or ctx_meta.get("value_description") or ""
+                        if desc_piece:
+                            desc_snip = f" -- desc: {desc_piece[:120]}"
                     extra = ""
                     fk_info = [fk for fk in self.fk_map.get(table, []) if fk[0] == col]
                     if fk_info:
@@ -1288,12 +1433,31 @@ class Pipeline():
                         val = self.similar_examples_map.get((table, col))
                         if val is not None:
                             line += f" -- examples: `{val}`"
+                    if desc_snip:
+                        line += desc_snip
                     schema_lines.append(line)
+        
+        if not schema_lines:
+            logging.warning("No schema lines to show. Returning tentative_schema.")
+            print("[select_columns] no schema_lines after building overview")
+            return tentative_schema
+        
         schema_overview = "\n".join(schema_lines)
         template_path = os.path.join(os.getcwd(), "prompt_templates/select_columns_prompt_template.txt")
+        print(f"[select_columns] template_path={template_path} exists={os.path.exists(template_path)}")
         with open(template_path, 'r') as f:
             template_text = f.read()
-        prompt = template_text.format(DATABASE_SCHEMA=schema_overview, QUESTION=question, HINT=(hint or "No hint"))
+        # Use manual replacement so literal braces in the template (JSON examples)
+        # do not get interpreted as .format placeholders.
+        prompt = (
+            template_text
+            .replace("{DATABASE_SCHEMA}", schema_overview)
+            .replace("{QUESTION}", question)
+            .replace("{HINT}", (hint or "No hint"))
+        )
+        print(f"[select_columns] prompt length={len(prompt)}")
+        print(f"[select_columns] prompt preview:\n{prompt[:800]}...\n")
+        
         try:
             response_object = create_response(stage="select_columns", prompt=prompt, model=self.model,
                                               max_tokens=self.max_tokens, temperature=self.temperature,
@@ -1301,9 +1465,27 @@ class Pipeline():
                                               provider=self.provider)
         except Exception as e:
             logging.error(f"LLM call failed for select_columns_module: {e}")
-            return {}
+            # Fallback to tentative_schema
+            return tentative_schema
+        
+        print(f"[select_columns] response_object type={type(response_object)}")
+        try:
+            print(f"[select_columns] response provider={getattr(response_object, 'provider', None)} model={getattr(response_object, 'model', None)}")
+        except Exception:
+            pass
+        try:
+            usage = getattr(response_object, 'usage', None)
+            if usage:
+                print(f"[select_columns] usage prompt_tokens={getattr(usage, 'prompt_tokens', None)} completion_tokens={getattr(usage, 'completion_tokens', None)} total_tokens={getattr(usage, 'total_tokens', None)}")
+        except Exception:
+            pass
+
         final_selected_columns = {}
         raw = response_object.choices[0].message.content
+        print(f"\n=== SELECT_COLUMNS LLM RESPONSE ===")
+        print(f"Raw response type: {type(raw)}")
+        print(f"Raw response content:\n{raw}")
+        print(f"===================================\n")
         try:
             if isinstance(raw, str):
                 content = json.loads(raw)
@@ -1313,7 +1495,8 @@ class Pipeline():
                 raise TypeError(f"Unexpected content type: {type(raw)}")
         except Exception as e:
             logging.error(f"Invalid JSON in select_columns_module: {e}")
-            return {}
+            # Fallback to tentative_schema
+            return tentative_schema
 
         if isinstance(content, dict):
             # unwrap if model nested under 'selected_columns'
@@ -1326,10 +1509,19 @@ class Pipeline():
             for table, cols in inner.items():
                 if table == "chain_of_thought_reasoning":
                     continue
-                final_selected_columns[table] = cols
+                if isinstance(cols, list):
+                    final_selected_columns[table] = cols
+        
+        # Validate and clean up
         for table in list(final_selected_columns.keys()):
             if table not in selected_tables or not final_selected_columns[table]:
                 final_selected_columns.pop(table, None)
+        
+        # If nothing selected, fallback to tentative_schema
+        if not final_selected_columns:
+            logging.warning("LLM returned empty or invalid selection. Using tentative_schema.")
+            return tentative_schema
+        
         return final_selected_columns
 
 

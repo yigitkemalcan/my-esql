@@ -74,10 +74,9 @@ def question_relevant_descriptions_prep(database_description_path, question, rel
 def relevant_descriptions_prep(database_description_path: str, question: str, relevant_description_number: int) -> str:
     """
     Wrapper for schema-relevant descriptions (CHESS-style IR).
-
-    Uses get_relevant_db_descriptions (BM25 over db_description.csv) to fetch
-    the top-N most relevant column descriptions and concatenates them into
-    a single string, one per line, prefixed with '# '.
+    Uses get_relevant_db_descriptions (vector search over prebuilt embeddings)
+    to fetch the top-N most relevant column descriptions and concatenates them
+    into a single string, one per line, prefixed with '# '.
 
     Arguments:
         database_description_path (str): Path to the directory containing database description CSV files.

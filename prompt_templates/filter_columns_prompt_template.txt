@@ -75,6 +75,51 @@ Directed by Buster Keaton refers to director_name; released in 1924 refers to mo
 }}
 ```
 
+Example 4:
+Column information:
+Table name: `movies`
+Original column name: `director_name`
+Data type: TEXT
+Description: Full Name of the movie director
+Example of values in the column: `Stanley Kubrick`
+
+
+Question:
+What is the average number of Mubi users who love movies directed by Stanley Kubrick?
+
+HINT:
+average = AVG(movie_popularity); number of Mubi users who loves the movie refers to movie_popularity;
+
+```json
+{{
+  "chain_of_thought_reasoning": "The question requires filtering movies directed by `Stanley Kubrick` to calculate the average popularity. The director_name column provides the director's name, and as shown in the example values, it includes `Stanley Kubrick`, which is essential for filtering movies directed by this specific director.",
+  "is_column_information_relevant": "Yes"
+}}
+```
+
+Example 5:
+Column information:
+Table name: `movies`
+Original column name: `movie_title`
+Data type: TEXT
+Description: Name of the movie
+Example of values in the column: `La Antena`
+
+
+Question:
+How many movies directed by Francis Ford Coppola have a popularity of more than 1,000? Indicate what is the highest amount of likes that each critic per movie has received, if there's any.
+
+HINT:
+Francis Ford Coppola refers to director_name; popularity of more than 1,000 refers to movie_popularity >1000;highest amount of likes that each critic per movie has received refers to MAX(critic_likes)
+  
+```json  
+{{
+  "chain_of_thought_reasoning": "The question involves counting movies directed by a specific director with a high popularity score. The movie_title column is relevant because it allows for the identification of movie titles, which is necessary for aggregating and analyzing data on specific movies as mentioned in the hint.",
+  "is_column_information_relevant": "Yes"
+}}
+```
+
+
 Now, its your turn to determine whether the provided column information can help formulate a SQL query to answer the given question, based on the provided hint.
 
 The following guidelines are VERY IMPORTANT to follow. Make sure to check each of them carefully before making your decision:

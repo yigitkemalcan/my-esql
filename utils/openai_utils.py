@@ -4,6 +4,7 @@ import os
 import json
 import re
 import time
+import logging
 
 from openai import OpenAI
 from types import SimpleNamespace
@@ -142,19 +143,14 @@ SELECT_TABLES_SCHEMA = {
 
 SELECT_COLUMNS_SCHEMA = {
     "type": "OBJECT",
-    "description": "Top-level object for column selection results.",
+    "description": "JSON object where 'chain_of_thought_reasoning' explains the selection, and each table name is a direct key mapping to an array of column names. Example: {'chain_of_thought_reasoning': 'Need County Name for filtering, Free Meal Count and Enrollment for calculation', 'frpm': ['County Name', 'Free Meal Count (K-12)', 'Enrollment (K-12)'], 'schools': ['CDSCode', 'Zip']}. IMPORTANT: Table names MUST be direct keys at root level, NOT nested under any other field.",
     "properties": {
-        "selected_columns": {
-            "type": "OBJECT",
-            "description": "Mapping from table name to list of selected column names."
-            # No 'properties', no 'additionalProperties' – keep it loose.
-        },
         "chain_of_thought_reasoning": {
             "type": "STRING",
-            "description": "Optional explanation for why these columns were selected."
+            "description": "Concise explanation of why these columns were selected."
         }
     },
-    "required": ["selected_columns"]
+    "required": ["chain_of_thought_reasoning"]
 }
 
 def _wrap_chat_like(model: str, content: Any, usage: Any):
@@ -303,22 +299,36 @@ def create_response(
         required_schema = SELECT_TABLES_SCHEMA
 
     elif stage == "select_columns":
+        # For Gemini, we avoid forcing a rigid schema to allow free-form table keys.
+        # We rely on the prompt to enforce the nested "selected_columns" structure.
         system_content = (
             "You are an expert database assistant. You are given:\n"
             "- A natural language question\n"
             "- A hint\n"
             "- A list of candidate tables and columns (including foreign keys)\n\n"
             "Select the minimal set of columns needed to write the SQL query that answers the question. "
-            "Group them by table name. Return JSON with 'selected_columns' "
-            "mapping each table name to an array of column names, and optionally "
-            "'chain_of_thought_reasoning' explaining your choices."
+            "OUTPUT FORMAT (MANDATORY): JSON with a top-level key 'selected_columns' that maps each table name "
+            "to an array of column names. Also include a 'chain_of_thought_reasoning' string.\n"
+            "Example:\n"
+            "{\n"
+            '  \"selected_columns\": {\n'
+            '    \"frpm\": [\"County Name\", \"Free Meal Count (K-12)\", \"Enrollment (K-12)\"]\n'
+            "  },\n"
+            '  \"chain_of_thought_reasoning\": \"Need county filter and rate calculation\"\n'
+            "}\n"
+            "Always include at least one table with at least one column. Do NOT return an empty object."
         )
-        required_schema = SELECT_COLUMNS_SCHEMA
+        # Let Gemini respond without schema enforcement for flexibility
+        required_schema = None
     else:
         raise ValueError("Wrong value for stage. It can only take following values: question_enrichment, candidate_sql_generation, sql_refinement, schema_filtering or qe_combination.")
 
     if provider.lower() == "openai":
         client = OpenAI()
+        if stage == "select_columns":
+            print("[create_response][openai][select_columns] sending request")
+            print(f"[create_response] model={model} max_tokens={max_tokens} temp={temperature} top_p={top_p} n={n}")
+            print(f"[create_response] prompt length={len(prompt)}")
         resp = client.chat.completions.create(
             model=model,
             messages=[
@@ -333,6 +343,16 @@ def create_response(
             presence_penalty=0.0,
             frequency_penalty=0.0,
         )
+        if stage == "select_columns":
+            try:
+                print(f"[create_response][openai] usage={resp.usage}")
+            except Exception:
+                pass
+            try:
+                print(f"[create_response][openai] raw content type={type(resp.choices[0].message.content)}")
+                print(f"[create_response][openai] raw content preview={str(resp.choices[0].message.content)[:400]}...")
+            except Exception:
+                pass
         # Return the original SDK object converted to a dict for consistency
         return resp
 
@@ -355,17 +375,22 @@ def create_response(
         else:
             raise RuntimeError(f"Vertex init failed for all locations: {tried}")
         
-        if required_schema is None:
-             raise ValueError(f"Schema object (e.g., QE_SCHEMA) is not defined for stage: {stage}")
-
         m = GenerativeModel(model, system_instruction=system_content)
-        cfg = GenerationConfig(
-            temperature=float(temperature),
-            top_p=float(top_p),
-            max_output_tokens=int(max_tokens) if max_tokens and max_tokens > 64 else 256,
-            response_mime_type="application/json",
-            response_schema=required_schema,
-        )
+        if required_schema is not None:
+            cfg = GenerationConfig(
+                temperature=float(temperature),
+                top_p=float(top_p),
+                max_output_tokens=int(max_tokens) if max_tokens and max_tokens > 64 else 256,
+                response_mime_type="application/json",
+                response_schema=required_schema,
+            )
+        else:
+            cfg = GenerationConfig(
+                temperature=float(temperature),
+                top_p=float(top_p),
+                max_output_tokens=int(max_tokens) if max_tokens and max_tokens > 64 else 256,
+                response_mime_type="application/json",
+            )
         retries = 3  # Set the maximum number of retries
         delay = 10  # Set the initial delay in seconds (e.g., 10 seconds)
         
@@ -389,6 +414,9 @@ def create_response(
             raise exceptions.ResourceExhausted("Failed to generate content after multiple retries due to resource exhaustion.")
 
         raw = _gemini_extract_text(vresp).strip()
+        if stage == "select_columns":
+            print(f"[create_response][gemini][select_columns] raw length={len(raw)}")
+            print(f"[create_response][gemini][select_columns] raw preview={raw[:400]}...")
 
         try:
             payload = json.loads(raw) if raw and raw.startswith("{") else {}
@@ -465,24 +493,39 @@ def create_response(
             payload["table_names"] = clean_tables
             payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
         elif stage == "select_columns":
-            selected = payload.get("selected_columns", {})
-            if not isinstance(selected, dict):
-                selected = {}
+            # Extract tables and columns from payload (nested selected_columns preferred)
             final_map = {}
-            for table, cols in selected.items():
-                if not isinstance(table, str):
-                    continue
-                if not isinstance(cols, list):
-                    continue
-                clean_cols = []
-                for c in cols:
-                    if isinstance(c, str) and c.strip():
-                        clean_cols.append(c.strip())
-                if clean_cols:
-                    final_map[table.strip()] = clean_cols
-
+            reasoning = payload.get("chain_of_thought_reasoning", "").strip()
+            
+            nested = payload.get("selected_columns")
+            if isinstance(nested, dict):
+                for table, cols in nested.items():
+                    if isinstance(table, str) and isinstance(cols, list):
+                        clean_cols = [c.strip() for c in cols if isinstance(c, str) and c.strip()]
+                        if clean_cols:
+                            final_map[table.strip()] = clean_cols
+            
+            # Also parse direct keys if no nested found
+            if not final_map:
+                for key, value in payload.items():
+                    if key in ("chain_of_thought_reasoning", "selected_columns"):
+                        continue
+                    if isinstance(key, str) and isinstance(value, list):
+                        clean_cols = [c.strip() for c in value if isinstance(c, str) and c.strip()]
+                        if clean_cols:
+                            final_map[key.strip()] = clean_cols
+            
+            if not final_map:
+                print("ERROR: SELECT_COLUMNS returned empty final_map!")
+                print(f"  Full payload: {payload}")
+                print(f"  Reasoning present: {bool(reasoning)}")
+            else:
+                print(f"SUCCESS: Extracted {len(final_map)} table(s): {list(final_map.keys())}")
+                for table, cols in final_map.items():
+                    print(f"  - {table}: {len(cols)} column(s)")
+            
             payload["selected_columns"] = final_map
-            payload["chain_of_thought_reasoning"] = payload.get("chain_of_thought_reasoning", "").strip()
+            payload["chain_of_thought_reasoning"] = reasoning
         # Wrap and return the OpenAI-like object
         return _wrap_chat_like(model, payload, getattr(vresp, "usage_metadata", None))
         
